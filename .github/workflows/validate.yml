@@ -1,0 +1,81 @@
+name: Validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: validate-${{ github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  MISE_ENV: ci
+
+jobs:
+  fmt:
+    name: Format
+    runs-on: warp-ubuntu-latest-x64-4x
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+
+      - name: Install Mise
+        uses: caido/action-mise-action@5ac50f778e26fac95da98d50503682459e86d566 # v3.2.0
+        with:
+          version: ${{ vars.CI__MISE_VERSION }}
+          install: true
+          # Cache must be disabled until https://github.com/jdx/mise-action/issues/215 is fixed
+          cache: false
+          log_level: debug
+          install_args: --env ${{ env.MISE_ENV }}
+
+      - name: Check formatting
+        run: mise run fmt:prod
+
+  clippy:
+    name: Clippy
+    runs-on: warp-ubuntu-latest-x64-4x
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+
+      - name: Install Mise
+        uses: caido/action-mise-action@5ac50f778e26fac95da98d50503682459e86d566 # v3.2.0
+        with:
+          version: ${{ vars.CI__MISE_VERSION }}
+          install: true
+          # Cache must be disabled until https://github.com/jdx/mise-action/issues/215 is fixed
+          cache: false
+          log_level: debug
+          install_args: --env ${{ env.MISE_ENV }}
+
+      - name: Run clippy
+        run: mise run clippy
+
+  test:
+    name: Test
+    runs-on: warp-ubuntu-latest-x64-4x
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+
+      - name: Install Mise
+        uses: caido/action-mise-action@5ac50f778e26fac95da98d50503682459e86d566 # v3.2.0
+        with:
+          version: ${{ vars.CI__MISE_VERSION }}
+          install: true
+          # Cache must be disabled until https://github.com/jdx/mise-action/issues/215 is fixed
+          cache: false
+          log_level: debug
+          install_args: --env ${{ env.MISE_ENV }}
+
+      - name: Run tests
+        run: mise run test

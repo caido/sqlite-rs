@@ -1,0 +1,14 @@
+[package]
+name = "sqlite-compress"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sqlite-loadable = {git = "https://github.com/caido/dependency-sqlite-loadable-rs",branch = "caido",default-features = false,features = ["dynamic"]}
+zstd = { version = "0.13.3", features = ["zdict_builder"] }
+
+[dev-dependencies]
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+[lib]
+crate-type=["cdylib","rlib"]
