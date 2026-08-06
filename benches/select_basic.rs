@@ -6,11 +6,13 @@
 
 mod dataset;
 
+use std::path::PathBuf;
+
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use dataset::{generate_sample, PayloadKind, SizeBucket};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
-use rusqlite::Connection;
+use rusqlite::{Connection, LoadExtensionGuard};
 use sqlite_compress::{compress, decompress, DEFAULT_LEVEL};
 
 fn json_sample() -> Vec<u8> {
@@ -32,6 +34,47 @@ fn open_filled(data: &[u8]) -> Connection {
     conn
 }
 
+fn compress_extension_path() -> PathBuf {
+    let target_dir = std::env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target"));
+
+    let lib_name = if cfg!(target_os = "windows") {
+        "sqlite_compress.dll"
+    } else if cfg!(target_os = "macos") {
+        "libsqlite_compress.dylib"
+    } else {
+        "libsqlite_compress.so"
+    };
+
+    for profile in ["release", "bench", "debug"] {
+        let candidate = target_dir.join(profile).join(lib_name);
+        if candidate.exists() {
+            return candidate;
+        }
+    }
+
+    panic!(
+        "sqlite-compress extension not found under {} (build with cargo bench / cargo build --release)",
+        target_dir.display()
+    );
+}
+
+fn open_filled_with_extension(data: &[u8]) -> Connection {
+    let conn = open_filled(data);
+    let path = compress_extension_path();
+    unsafe {
+        let _guard = LoadExtensionGuard::new(&conn).expect("enable load_extension");
+        conn.load_extension(&path, Some("sqlite3_compress_init"))
+            .unwrap_or_else(|e| panic!("load extension {}: {e}", path.display()));
+    }
+    conn.query_row("SELECT typeof(decompress(compress(X'00')))", [], |row| {
+        row.get::<_, String>(0)
+    })
+    .expect("decompress() SQL function missing after load_extension");
+    conn
+}
+
 fn select_blob(conn: &Connection) -> Vec<u8> {
     conn.query_row(
         "SELECT data FROM requests_raw WHERE id = 1",
@@ -39,6 +82,15 @@ fn select_blob(conn: &Connection) -> Vec<u8> {
         |row| row.get(0),
     )
     .expect("select")
+}
+
+fn select_decompressed_sql(conn: &Connection) -> Vec<u8> {
+    conn.query_row(
+        "SELECT decompress(data) FROM requests_raw WHERE id = 1",
+        [],
+        |row| row.get(0),
+    )
+    .expect("select decompress()")
 }
 
 fn bench_select(c: &mut Criterion) {
@@ -69,6 +121,17 @@ fn bench_select(c: &mut Criterion) {
         b.iter(|| {
             let blob = select_blob(&conn);
             let out = decompress(black_box(&blob)).expect("decompress");
+            black_box(out);
+        });
+    });
+
+    group.bench_function(BenchmarkId::new("decompress_ext", "json_small"), |b| {
+        let conn = open_filled_with_extension(&compressed);
+        let ext_roundtrip = select_decompressed_sql(&conn);
+        assert_eq!(ext_roundtrip, sample);
+
+        b.iter(|| {
+            let out = select_decompressed_sql(&conn);
             black_box(out);
         });
     });

@@ -1,18 +1,13 @@
-//! Insert benchmarks categorized by operation.
-//!
-//! ```text
-//! cargo bench --bench insert_basic
-//! ```
-
 mod dataset;
 
+use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use dataset::{generate_sample, PayloadKind, SizeBucket};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
-use rusqlite::Connection;
+use rusqlite::{Connection, LoadExtensionGuard};
 use sqlite_compress::{
     compress, setup, train, DictStore, SetupConfig, SetupConnection, SetupTable, LATEST_DICT_ID,
     DEFAULT_LEVEL,
@@ -35,6 +30,48 @@ fn open_table() -> Connection {
         );",
     )
     .expect("create table");
+    conn
+}
+
+fn compress_extension_path() -> PathBuf {
+    let target_dir = std::env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target"));
+
+    let lib_name = if cfg!(target_os = "windows") {
+        "sqlite_compress.dll"
+    } else if cfg!(target_os = "macos") {
+        "libsqlite_compress.dylib"
+    } else {
+        "libsqlite_compress.so"
+    };
+
+    for profile in ["release", "bench", "debug"] {
+        let candidate = target_dir.join(profile).join(lib_name);
+        if candidate.exists() {
+            return candidate;
+        }
+    }
+
+    panic!(
+        "sqlite-compress extension not found under {} (build with cargo bench / cargo build --release)",
+        target_dir.display()
+    );
+}
+
+fn open_table_with_extension() -> Connection {
+    let conn = open_table();
+    let path = compress_extension_path();
+    unsafe {
+        let _guard = LoadExtensionGuard::new(&conn).expect("enable load_extension");
+        conn.load_extension(&path, Some("sqlite3_compress_init"))
+            .unwrap_or_else(|e| panic!("load extension {}: {e}", path.display()));
+    }
+    // Smoke-check the SQL entrypoint is registered.
+    conn.query_row("SELECT typeof(compress(X'00'))", [], |row| {
+        row.get::<_, String>(0)
+    })
+    .expect("compress() SQL function missing after load_extension");
     conn
 }
 
@@ -192,6 +229,26 @@ fn bench_insert(c: &mut Criterion) {
                     [black_box(compressed.as_slice())],
                 )
                 .expect("insert");
+            },
+            criterion::BatchSize::SmallInput,
+        );
+    });
+
+    // SQL compress() via loaded cdylib (separate address space from the rlib API,
+    // so this path is raw zstd unless the extension warms its own dict cache).
+    group.bench_function(BenchmarkId::new("compress_ext", "json_small"), |b| {
+        let conn = open_table_with_extension();
+        b.iter_batched(
+            || {
+                conn.execute("DELETE FROM requests_raw", [])
+                    .expect("reset table");
+            },
+            |()| {
+                conn.execute(
+                    "INSERT INTO requests_raw (data) VALUES (compress(?1))",
+                    [black_box(sample.as_slice())],
+                )
+                .expect("insert via extension");
             },
             criterion::BatchSize::SmallInput,
         );
