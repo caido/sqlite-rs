@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+#MISE description="Run all checks (fmt, clippy, test)"
+#MISE depends=["fmt:dev", "clippy", "test"]
