@@ -16,7 +16,7 @@ fn decompress_with_decoder(
 }
 
 fn decompress_raw(payload: &[u8]) -> std::result::Result<Vec<u8>, CodecError> {
-    zstd::bulk::decompress(payload, payload.len()).map_err(CodecError::DecompressionFailed)
+    zstd::stream::decode_all(payload).map_err(CodecError::DecompressionFailed)
 }
 
 fn split_blob(blob: &[u8]) -> std::result::Result<(u32, &[u8]), CodecError> {

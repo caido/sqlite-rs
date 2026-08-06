@@ -2,13 +2,37 @@
 name = "sqlite-compress"
 version = "0.1.0"
 edition = "2021"
+autobenches = false
 
 [dependencies]
 sqlite-loadable = {git = "https://github.com/caido/dependency-sqlite-loadable-rs",branch = "caido",default-features = false,features = ["dynamic"]}
 zstd = { version = "0.13.3", features = ["zdict_builder"] }
+clap = { version = "4", features = ["derive"], optional = true }
+rand = { version = "0.8", optional = true }
+rusqlite = { version = "0.32", features = ["bundled"], optional = true }
 
 [dev-dependencies]
+clap = { version = "4", features = ["derive"] }
+criterion = "0.5"
+rand = "0.8"
 rusqlite = { version = "0.32", features = ["bundled"] }
+
+[features]
+default = []
+bench-tools = ["dep:clap", "dep:rand", "dep:rusqlite"]
 
 [lib]
 crate-type=["cdylib","rlib"]
+
+[[bin]]
+name = "gen-dataset"
+path = "benches/gen_dataset.rs"
+required-features = ["bench-tools"]
+
+[[bench]]
+name = "insert_basic"
+harness = false
+
+[[bench]]
+name = "select_basic"
+harness = false
