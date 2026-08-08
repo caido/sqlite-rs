@@ -1,13 +1,14 @@
 use crate::dict::errors::DictError;
+use crate::dict::lru::DictLru;
 use crate::setup::{DictStore, SetupConnection};
 use crate::utils::quote_identifier;
-use parking_lot::RwLock;
-use std::collections::HashMap;
+use parking_lot::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, OnceLock};
 use zstd::dict::{DecoderDictionary, EncoderDictionary};
 
 pub mod errors;
+mod lru;
 mod train;
 mod types;
 
@@ -16,11 +17,11 @@ pub use types::DictId;
 
 pub static DICT_TABLE_NAME: &str = "__zstd_dicts";
 
-static ENCODER_CACHE: OnceLock<RwLock<HashMap<DictId, Arc<EncoderDictionary<'static>>>>> =
-    OnceLock::new();
+type EncoderCache = Mutex<DictLru<EncoderDictionary<'static>>>;
+type DecoderCache = Mutex<DictLru<DecoderDictionary<'static>>>;
 
-static DECODER_CACHE: OnceLock<RwLock<HashMap<DictId, Arc<DecoderDictionary<'static>>>>> =
-    OnceLock::new();
+static ENCODER_CACHE: OnceLock<EncoderCache> = OnceLock::new();
+static DECODER_CACHE: OnceLock<DecoderCache> = OnceLock::new();
 
 pub static LATEST_DICT_ID: AtomicU32 = AtomicU32::new(0);
 
@@ -41,12 +42,12 @@ fn load_raw_dict<C: DictStore>(dict_id: DictId, conn: &mut C) -> Result<Vec<u8>,
 
 #[expect(dead_code)]
 pub fn get_encoder_cached(dict_id: DictId) -> Option<Arc<EncoderDictionary<'static>>> {
-    ENCODER_CACHE.get()?.read().get(&dict_id).cloned()
+    ENCODER_CACHE.get()?.lock().peek(dict_id)
 }
 
 #[expect(dead_code)]
 pub fn get_decoder_cached(dict_id: DictId) -> Option<Arc<DecoderDictionary<'static>>> {
-    DECODER_CACHE.get()?.read().get(&dict_id).cloned()
+    DECODER_CACHE.get()?.lock().peek(dict_id)
 }
 
 pub fn get_encoder<C>(
@@ -57,16 +58,23 @@ pub fn get_encoder<C>(
 where
     C: DictStore,
 {
-    let cache = ENCODER_CACHE.get_or_init(|| RwLock::new(HashMap::new()));
+    let cache = ENCODER_CACHE.get_or_init(|| Mutex::new(DictLru::new()));
 
-    if let Some(d) = cache.read().get(&dict_id) {
+    if let Some(d) = cache.lock().get(dict_id) {
         return Ok(d.clone());
     }
 
     let raw = load_raw_dict(dict_id, conn)?;
     let encoder = Arc::new(EncoderDictionary::copy(&raw, level));
 
-    cache.write().insert(dict_id, encoder.clone());
+    {
+        let mut cache = cache.lock();
+        if let Some(d) = cache.get(dict_id) {
+            return Ok(d);
+        }
+        cache.insert(dict_id, encoder.clone());
+    }
+
     LATEST_DICT_ID.store(dict_id.get(), Ordering::Relaxed);
     Ok(encoder)
 }
@@ -78,16 +86,23 @@ pub fn get_decoder<C>(
 where
     C: DictStore,
 {
-    let cache = DECODER_CACHE.get_or_init(|| RwLock::new(HashMap::new()));
+    let cache = DECODER_CACHE.get_or_init(|| Mutex::new(DictLru::new()));
 
-    if let Some(d) = cache.read().get(&dict_id) {
+    if let Some(d) = cache.lock().get(dict_id) {
         return Ok(d.clone());
     }
 
     let raw = load_raw_dict(dict_id, conn)?;
     let decoder = Arc::new(DecoderDictionary::copy(&raw));
 
-    cache.write().insert(dict_id, decoder.clone());
+    {
+        let mut cache = cache.lock();
+        if let Some(d) = cache.get(dict_id) {
+            return Ok(d);
+        }
+        cache.insert(dict_id, decoder.clone());
+    }
+
     LATEST_DICT_ID.store(dict_id.get(), Ordering::Relaxed);
     Ok(decoder)
 }
@@ -96,8 +111,8 @@ pub fn warm_cache<C>(conn: &mut C, level: i32) -> Result<(), DictError>
 where
     C: SetupConnection,
 {
-    ENCODER_CACHE.get_or_init(|| RwLock::new(HashMap::new()));
-    DECODER_CACHE.get_or_init(|| RwLock::new(HashMap::new()));
+    ENCODER_CACHE.get_or_init(|| Mutex::new(DictLru::new()));
+    DECODER_CACHE.get_or_init(|| Mutex::new(DictLru::new()));
 
     let quoted_dict_table_name = quote_identifier(DICT_TABLE_NAME);
 
@@ -124,13 +139,13 @@ pub fn insert_into_caches(dict_id: DictId, dictionary: &[u8], level: i32) {
     let decoder = Arc::new(DecoderDictionary::copy(dictionary));
 
     ENCODER_CACHE
-        .get_or_init(|| RwLock::new(HashMap::new()))
-        .write()
+        .get_or_init(|| Mutex::new(DictLru::new()))
+        .lock()
         .insert(dict_id, encoder);
 
     DECODER_CACHE
-        .get_or_init(|| RwLock::new(HashMap::new()))
-        .write()
+        .get_or_init(|| Mutex::new(DictLru::new()))
+        .lock()
         .insert(dict_id, decoder);
 
     LATEST_DICT_ID.store(dict_id.get(), Ordering::Relaxed);

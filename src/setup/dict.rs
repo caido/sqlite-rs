@@ -28,7 +28,7 @@ where
         conn.batch_execute(&format!(
             "
         CREATE TABLE IF NOT EXISTS {schema}.{DICT_TABLE_NAME} (
-            id INTEGER PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             dict BLOB NOT NULL,
             trained_at INTEGER NOT NULL,
             row_count INTEGER NOT NULL

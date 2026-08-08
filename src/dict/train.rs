@@ -120,17 +120,21 @@ where
         let exists = conn
             .query_i64(&format!("SELECT COUNT(*) FROM {schema_name}"))
             .map_err(SetupError::from_conn)?;
+
         if exists == 0 {
             continue;
         }
+
         let row_count = conn
             .query_i64(&format!(
                 "SELECT row_count FROM {schema_name} \
                  ORDER BY id DESC LIMIT 1"
             ))
             .map_err(SetupError::from_conn)?;
+
         last_row_count = Some(last_row_count.map_or(row_count, |n| n.max(row_count)));
     }
+
     match last_row_count {
         None => Ok(true),
         Some(last) => Ok(available >= last + RETRAIN_GROWTH as i64),
