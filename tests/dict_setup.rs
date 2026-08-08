@@ -1,5 +1,5 @@
 use rusqlite::Connection;
-use sqlite_compress::{setup, SetupConfig, SetupTable};
+use sqlite_compress::{setup, ColumnName, SchemaName, SetupConfig, SetupTable, TableName};
 mod common;
 
 #[test]
@@ -15,9 +15,9 @@ fn setup_table_does_not_exist() {
 
     let config = SetupConfig {
         tables: vec![SetupTable {
-            name: "requests_raw".to_string(),
-            schema: "raw".to_string(),
-            columns: vec!["data".to_string()],
+            name: TableName::new("requests_raw"),
+            schema: SchemaName::new("raw"),
+            columns: vec![ColumnName::new("data")],
         }],
         compression_level: sqlite_compress::DEFAULT_LEVEL,
     };
@@ -27,7 +27,7 @@ fn setup_table_does_not_exist() {
 
     let count: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM raw.sqlite_master WHERE type='table' AND name='_zstd_dicts'",
+            "SELECT COUNT(*) FROM raw.sqlite_master WHERE type='table' AND name='__zstd_dicts'",
             [],
             |row| row.get(0),
         )
@@ -42,16 +42,16 @@ fn setup_table_already_exists() {
         r#"
          ATTACH DATABASE ':memory:' AS raw;
         CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
-        CREATE TABLE raw._zstd_dicts (id INTEGER PRIMARY KEY, dict BLOB NOT NULL, trained_at INTEGER NOT NULL);
+        CREATE TABLE raw.__zstd_dicts (id INTEGER PRIMARY KEY, dict BLOB NOT NULL, trained_at INTEGER NOT NULL);
         "#,
     )
     .unwrap();
 
     let config = SetupConfig {
         tables: vec![SetupTable {
-            name: "requests_raw".to_string(),
-            schema: "raw".to_string(),
-            columns: vec!["data".to_string()],
+            name: TableName::new("requests_raw"),
+            schema: SchemaName::new("raw"),
+            columns: vec![ColumnName::new("data")],
         }],
         compression_level: sqlite_compress::DEFAULT_LEVEL,
     };
@@ -61,7 +61,7 @@ fn setup_table_already_exists() {
 
     let count: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM raw.sqlite_master WHERE type='table' AND name='_zstd_dicts'",
+            "SELECT COUNT(*) FROM raw.sqlite_master WHERE type='table' AND name='__zstd_dicts'",
             [],
             |row| row.get(0),
         )

@@ -3,6 +3,7 @@ mod dict;
 mod errors;
 mod views;
 
+pub use config::{ColumnName, SchemaName, SqlIdent, TableName};
 pub use config::{DictStore, SetupConfig, SetupConnection, SetupTable};
 use dict::init_dict;
 pub use errors::SetupError;

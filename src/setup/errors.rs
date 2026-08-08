@@ -1,36 +1,18 @@
 use std::error::Error as StdError;
-use std::fmt;
+use thiserror::Error;
 
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum SetupError {
-    Connection(Box<dyn StdError + Send + Sync>),
+    #[error("connection error: {0}")]
+    Connection(#[source] Box<dyn StdError + Send + Sync>),
+    #[error("table not found: {0}")]
     TableNotFound(String),
+    #[error("column {column} not found in {table}")]
     ColumnNotFound { table: String, column: String },
+    #[error("invalid config: {0}")]
     InvalidConfig(&'static str),
+    #[error("dict train error: {0}")]
     DictTrain(String),
-}
-
-impl fmt::Display for SetupError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Connection(e) => write!(f, "connection error: {e}"),
-            Self::TableNotFound(t) => write!(f, "table not found: {t}"),
-            Self::ColumnNotFound { table, column } => {
-                write!(f, "column {column} not found in {table}")
-            }
-            Self::InvalidConfig(msg) => write!(f, "invalid config: {msg}"),
-            Self::DictTrain(msg) => write!(f, "dict train error: {msg}"),
-        }
-    }
-}
-
-impl StdError for SetupError {
-    fn source(&self) -> Option<&(dyn StdError + 'static)> {
-        match self {
-            Self::Connection(e) => Some(e.as_ref()),
-            _ => None,
-        }
-    }
 }
 
 impl SetupError {

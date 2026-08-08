@@ -1,9 +1,5 @@
-use crate::{
-    dict::warm_cache,
-    setup::{SetupConfig, SetupConnection, SetupError},
-};
-
-const DICT_TABLE_NAME: &str = "_zstd_dicts";
+use super::{SetupConfig, SetupConnection, SetupError};
+use crate::dict::{warm_cache, DICT_TABLE_NAME};
 
 fn ensure_table_exists<C>(conn: &mut C, config: &SetupConfig) -> Result<(), SetupError>
 where
@@ -12,15 +8,15 @@ where
     let mut schemas_done = std::collections::HashSet::new();
 
     for table in &config.tables {
-        if !schemas_done.insert(table.schema.as_str()) {
+        if !schemas_done.insert(&table.schema) {
             continue;
         }
 
-        let schema = table.schema.as_str();
+        let schema = table.as_qualified_schema_name();
 
         let count = conn
             .query_i64(&format!(
-                "SELECT COUNT(*) FROM \"{schema}\".sqlite_master \
+                "SELECT COUNT(*) FROM {schema}.sqlite_master \
          WHERE type = 'table' AND name = '{DICT_TABLE_NAME}'"
             ))
             .map_err(SetupError::from_conn)?;
@@ -31,7 +27,7 @@ where
 
         conn.batch_execute(&format!(
             "
-        CREATE TABLE IF NOT EXISTS \"{schema}\".{DICT_TABLE_NAME} (
+        CREATE TABLE IF NOT EXISTS {schema}.{DICT_TABLE_NAME} (
             id INTEGER PRIMARY KEY,
             dict BLOB NOT NULL,
             trained_at INTEGER NOT NULL,

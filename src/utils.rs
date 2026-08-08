@@ -1,4 +1,4 @@
-pub fn q(schema: &str, name: &str) -> String {
+pub fn quote_qualified(schema: &str, name: &str) -> String {
     format!("\"{schema}\".\"{name}\"")
 }
 

@@ -1,5 +1,7 @@
 use rusqlite::Connection;
-use sqlite_compress::{setup, SetupConfig, SetupError, SetupTable};
+use sqlite_compress::{
+    setup, ColumnName, SchemaName, SetupConfig, SetupError, SetupTable, TableName,
+};
 mod common;
 
 #[test]
@@ -16,9 +18,9 @@ fn setup_skips_existing_view() {
 
     let config = SetupConfig {
         tables: vec![SetupTable {
-            name: "requests_raw".to_string(),
-            schema: "raw".to_string(),
-            columns: vec!["data".to_string()],
+            name: TableName::new("requests_raw"),
+            schema: SchemaName::new("raw"),
+            columns: vec![ColumnName::new("data")],
         }],
         compression_level: sqlite_compress::DEFAULT_LEVEL,
     };
@@ -40,9 +42,9 @@ fn setup_creates_view() {
 
     let config = SetupConfig {
         tables: vec![SetupTable {
-            name: "requests_raw".to_string(),
-            schema: "raw".to_string(),
-            columns: vec!["data".to_string()],
+            name: TableName::new("requests_raw"),
+            schema: SchemaName::new("raw"),
+            columns: vec![ColumnName::new("data")],
         }],
         compression_level: sqlite_compress::DEFAULT_LEVEL,
     };
@@ -75,9 +77,9 @@ fn setup_rejects_missing_column() {
 
     let config = SetupConfig {
         tables: vec![SetupTable {
-            name: "requests_raw".to_string(),
-            schema: "raw".to_string(),
-            columns: vec!["unvalid_column".to_string()],
+            name: TableName::new("requests_raw"),
+            schema: SchemaName::new("raw"),
+            columns: vec![ColumnName::new("unvalid_column")],
         }],
         compression_level: sqlite_compress::DEFAULT_LEVEL,
     };
@@ -104,8 +106,8 @@ fn setup_rejects_missing_table() {
 
     let config = SetupConfig {
         tables: vec![SetupTable {
-            name: "missing_table".to_string(),
-            schema: "raw".to_string(),
+            name: TableName::new("missing_table"),
+            schema: SchemaName::new("raw"),
             columns: vec![],
         }],
         compression_level: sqlite_compress::DEFAULT_LEVEL,

@@ -1,18 +1,27 @@
-use crate::setup::{SetupConfig, SetupConnection, SetupError};
-use crate::utils::q;
+use crate::setup::config::{ColumnName, SchemaName, TableName};
+use crate::setup::{SetupConfig, SetupConnection, SetupError, SqlIdent};
+use crate::SetupTable;
 
-fn ensure_table_exists<C>(conn: &mut C, schema: &str, table_name: &str) -> Result<(), SetupError>
+fn ensure_table_exists<C>(
+    conn: &mut C,
+    schema: &SchemaName,
+    table_name: &TableName,
+) -> Result<(), SetupError>
 where
     C: SetupConnection,
 {
     let count = conn
         .query_i64(&format!(
-            "SELECT COUNT(*) FROM \"{schema}\".sqlite_master WHERE type = 'table' AND name = '{table_name}'"
+            "SELECT COUNT(*) FROM {schema}.sqlite_master WHERE type = 'table' AND name = {table_name}"
         ))
         .map_err(SetupError::from_conn)?;
 
     if count == 0 {
-        return Err(SetupError::TableNotFound(format!("{schema}.{table_name}")));
+        return Err(SetupError::TableNotFound(format!(
+            "{}.{}",
+            schema.as_str(),
+            table_name.as_str()
+        )));
     }
 
     Ok(())
@@ -20,9 +29,9 @@ where
 
 fn ensure_columns_exist<C>(
     conn: &mut C,
-    table_name: &str,
-    schema: &str,
-    columns: &[String],
+    table: &TableName,
+    schema: &SchemaName,
+    columns: &Vec<ColumnName>,
 ) -> Result<bool, SetupError>
 where
     C: SetupConnection,
@@ -30,32 +39,33 @@ where
     for column in columns {
         let col_exists = conn
             .query_i64(&format!(
-    "SELECT COUNT(*) FROM pragma_table_info('{table_name}', '{schema}') WHERE name = '{column}'"
-))
+                "SELECT COUNT(*) FROM pragma_table_info({table}, {schema}) WHERE name = {column}"
+            ))
             .map_err(SetupError::from_conn)?;
 
         if col_exists == 0 {
             return Err(SetupError::ColumnNotFound {
-                table: table_name.to_string(),
-                column: column.to_string(),
+                table: table.as_str().to_string(),
+                column: column.as_str().to_string(),
             });
         }
     }
     Ok(true)
 }
 
-fn ensure_view_exists<C>(conn: &mut C, schema: &str, table_name: &str) -> Result<(), SetupError>
+fn ensure_view_exists<C>(conn: &mut C, table: &SetupTable) -> Result<(), SetupError>
 where
     C: SetupConnection,
 {
-    let view_name = format!("{}_zstd_decoded", table_name);
-
-    let view_q = q(schema, &view_name);
+    let schema = table.as_qualified_schema_name();
+    let bare = table.view_name();
+    let qualified = table.as_qualified_view_name();
 
     let count = conn
         .query_i64(&format!(
-    "SELECT COUNT(*) FROM \"{schema}\".sqlite_master WHERE type = 'view' AND name = '{view_name}'"
-))
+            "SELECT COUNT(*) FROM {schema}.sqlite_master \
+     WHERE type = 'view' AND name = '{bare}'"
+        ))
         .map_err(SetupError::from_conn)?;
 
     if count > 0 {
@@ -63,7 +73,8 @@ where
     }
 
     conn.batch_execute(&format!(
-        "CREATE VIEW IF NOT EXISTS {view_q} AS SELECT * FROM {table_name}"
+        "CREATE VIEW IF NOT EXISTS {qualified} AS SELECT * FROM {}",
+        table.as_qualified_name() // "raw"."requests_raw", pas juste "requests_raw"
     ))
     .map_err(SetupError::from_conn)?;
 
@@ -78,7 +89,7 @@ where
         ensure_table_exists(conn, &table.schema, &table.name)?;
         ensure_columns_exist(conn, &table.name, &table.schema, &table.columns)?;
 
-        ensure_view_exists(conn, &table.schema, &table.name)?;
+        ensure_view_exists(conn, table)?;
     }
 
     Ok(())

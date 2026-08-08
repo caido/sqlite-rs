@@ -1,8 +1,7 @@
-use std::collections::HashSet;
-
 use crate::dict::insert_into_caches;
-use crate::setup::{SetupConfig, SetupConnection, SetupError};
-use crate::utils::quote_identifier;
+use crate::dict::types::DictId;
+use crate::setup::{SchemaName, SetupConfig, SetupConnection, SetupError, SqlIdent};
+use std::collections::HashSet;
 
 const RETRAIN_GROWTH: usize = 5000;
 
@@ -12,7 +11,7 @@ pub fn train<C>(
     dict_capacity: usize,
     max_samples: usize,
     min_samples: usize,
-) -> Result<u32, SetupError>
+) -> Result<DictId, SetupError>
 where
     C: SetupConnection,
 {
@@ -57,12 +56,12 @@ fn validate_config(config: &SetupConfig, dict_capacity: usize) -> Result<(), Set
     Ok(())
 }
 
-fn unique_schemas(config: &SetupConfig) -> Vec<&str> {
+fn unique_schemas(config: &SetupConfig) -> Vec<&SchemaName> {
     let mut schemas = Vec::new();
     let mut seen = HashSet::new();
     for table in &config.tables {
-        if seen.insert(table.schema.as_str()) {
-            schemas.push(table.schema.as_str());
+        if seen.insert(&table.schema) {
+            schemas.push(&table.schema);
         }
     }
     schemas
@@ -91,13 +90,9 @@ where
 {
     let mut parts = Vec::new();
     for table in &config.tables {
-        let table_name = format!(
-            "{}.{}",
-            quote_identifier(&table.schema),
-            quote_identifier(&table.name)
-        );
+        let table_name = table.as_qualified_name();
         for column in &table.columns {
-            let column_name = quote_identifier(column);
+            let column_name = column.quote();
             parts.push(format!(
                 "SELECT COUNT(*) AS c FROM {table_name} \
                  WHERE {column_name} IS NOT NULL AND length({column_name}) > 0"
@@ -111,31 +106,33 @@ where
     .map_err(SetupError::from_conn)
 }
 
-fn retrain_required<C>(conn: &mut C, schemas: &[&str], available: i64) -> Result<bool, SetupError>
+fn retrain_required<C>(
+    conn: &mut C,
+    schemas: &[&SchemaName],
+    available: i64,
+) -> Result<bool, SetupError>
 where
     C: SetupConnection,
 {
     let mut last_row_count: Option<i64> = None;
     for schema in schemas {
-        let schema_name = quote_identifier(schema);
+        let schema_name = schema.as_zstd_schema_name();
         let exists = conn
-            .query_i64(&format!(
-                "SELECT COUNT(*) FROM {schema_name}.\"_zstd_dicts\""
-            ))
+            .query_i64(&format!("SELECT COUNT(*) FROM {schema_name}"))
             .map_err(SetupError::from_conn)?;
         if exists == 0 {
             continue;
         }
         let row_count = conn
             .query_i64(&format!(
-                "SELECT row_count FROM {schema_name}.\"_zstd_dicts\" \
+                "SELECT row_count FROM {schema_name} \
                  ORDER BY id DESC LIMIT 1"
             ))
             .map_err(SetupError::from_conn)?;
         last_row_count = Some(last_row_count.map_or(row_count, |n| n.max(row_count)));
     }
     match last_row_count {
-        None => Ok(true), // first train
+        None => Ok(true),
         Some(last) => Ok(available >= last + RETRAIN_GROWTH as i64),
     }
 }
@@ -144,7 +141,7 @@ fn collect_samples<'a, C>(
     conn: &mut C,
     config: &'a SetupConfig,
     max_samples: usize,
-) -> Result<(Vec<Vec<u8>>, Vec<&'a str>), SetupError>
+) -> Result<(Vec<Vec<u8>>, Vec<&'a SchemaName>), SetupError>
 where
     C: SetupConnection,
 {
@@ -153,18 +150,14 @@ where
     let mut schemas_seen = HashSet::new();
 
     for table in &config.tables {
-        if schemas_seen.insert(table.schema.as_str()) {
-            schemas.push(table.schema.as_str());
+        if schemas_seen.insert(&table.schema) {
+            schemas.push(&table.schema);
         }
 
-        let table_name = format!(
-            "{}.{}",
-            quote_identifier(&table.schema),
-            quote_identifier(&table.name)
-        );
+        let table_name = table.as_qualified_name();
 
         for column in &table.columns {
-            let column_name = quote_identifier(column);
+            let column_name = column.quote();
             let mut column_samples = conn
                 .query_blobs(&format!(
                     "SELECT {column_name} FROM {table_name} \
@@ -193,17 +186,15 @@ fn build_dictionary(samples: &[Vec<u8>], dict_capacity: usize) -> Result<Vec<u8>
         .map_err(|error| SetupError::DictTrain(error.to_string()))
 }
 
-fn next_dict_id<C>(conn: &mut C, schemas: &[&str]) -> Result<u32, SetupError>
+fn next_dict_id<C>(conn: &mut C, schemas: &[&SchemaName]) -> Result<DictId, SetupError>
 where
     C: SetupConnection,
 {
     let mut latest_id = 0_i64;
     for schema in schemas {
-        let schema_name = quote_identifier(schema);
+        let schema_name = schema.as_zstd_schema_name();
         let id = conn
-            .query_i64(&format!(
-                "SELECT COALESCE(MAX(id), 0) FROM {schema_name}.\"_zstd_dicts\""
-            ))
+            .query_i64(&format!("SELECT COALESCE(MAX(id), 0) FROM {schema_name}"))
             .map_err(SetupError::from_conn)?;
         latest_id = latest_id.max(id);
     }
@@ -211,13 +202,14 @@ where
     latest_id
         .checked_add(1)
         .and_then(|id| u32::try_from(id).ok())
+        .map(DictId::new)
         .ok_or_else(|| SetupError::DictTrain("dictionary id overflow".to_string()))
 }
 
 fn persist_dictionary<C>(
     conn: &mut C,
-    schemas: &[&str],
-    dict_id: u32,
+    schemas: &[&SchemaName],
+    dict_id: DictId,
     dictionary: &[u8],
     row_count: i64,
 ) -> Result<(), SetupError>
@@ -225,10 +217,10 @@ where
     C: SetupConnection,
 {
     for schema in schemas {
-        let schema_name = quote_identifier(schema);
+        let schema_name = schema.as_zstd_schema_name();
         conn.execute_blob(
             &format!(
-                "INSERT INTO {schema_name}.\"_zstd_dicts\" \
+                "INSERT INTO {schema_name} \
                  (id, dict, trained_at, row_count) \
                  VALUES ({dict_id}, ?1, strftime('%s', 'now'), {row_count})"
             ),
