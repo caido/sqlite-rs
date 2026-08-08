@@ -123,5 +123,9 @@ pub trait DictStore {
 pub trait SetupConnection: DictStore {
     fn batch_execute(&mut self, sql: &str) -> Result<(), Self::Error>;
     fn query_i64(&mut self, sql: &str) -> Result<i64, Self::Error>;
-    fn execute_blob(&mut self, sql: &str, blob: &[u8]) -> Result<(), Self::Error>;
+    fn execute_blob(&mut self, sql: &str, blob: &[u8]) -> Result<i64, Self::Error>;
+
+    fn for_each_blob<F>(&mut self, sql: &str, f: F) -> Result<(), Self::Error>
+    where
+        F: FnMut(&[u8]) -> Result<(), Self::Error>;
 }
