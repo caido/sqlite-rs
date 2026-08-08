@@ -125,6 +125,8 @@ pub trait SetupConnection: DictStore {
     fn query_i64(&mut self, sql: &str) -> Result<i64, Self::Error>;
     fn execute_blob(&mut self, sql: &str, blob: &[u8]) -> Result<i64, Self::Error>;
 
+    /// For each blob in the table, execute the function.
+    /// Be able to stream the blobs to the function.
     fn for_each_blob<F>(&mut self, sql: &str, f: F) -> Result<(), Self::Error>
     where
         F: FnMut(&[u8]) -> Result<(), Self::Error>;

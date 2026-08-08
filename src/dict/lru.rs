@@ -5,6 +5,10 @@ use std::sync::Arc;
 
 const MAX_CACHED_DICTS: usize = 5;
 
+/// Fixed-capacity LRU cache of dictionaries keyed by [`DictId`].
+///
+/// Holds at most [`MAX_CACHED_DICTS`] entries. [`DictLru::get`] and [`DictLru::insert`]
+/// promote an id to most-recent; [`DictLru::peek`] does not.
 pub struct DictLru<T> {
     map: HashMap<DictId, Arc<T>>,
     order: VecDeque<DictId>,

@@ -3,6 +3,12 @@ use crate::dict::types::DictId;
 use crate::setup::{SchemaName, SetupConfig, SetupConnection, SetupError, SqlIdent};
 use std::collections::HashSet;
 
+/// Train the dictionary if the condition is met (enough samples and retrain growth).
+/// It is done by collecting the samples from the tables, and building the dictionary.
+/// Then, the dictionary is persisted in the database.
+/// Finally, the dictionary is sync to the caches, sync to the cache is mandatory to ensure the dictionary is ready to be used.
+/// By [get_decoder_cached](crate::dict::get_decoder_cached), [get_encoder_cached](crate::dict::get_encoder_cached),
+/// the dictionary is cached in memory.
 pub fn train<C>(
     conn: &mut C,
     config: &SetupConfig,
@@ -32,6 +38,8 @@ where
     Ok(dict_id)
 }
 
+/// Validate the config is valid.
+/// It is done by checking the dictionary capacity and the tables and columns configuration.
 fn validate_config(config: &SetupConfig, dict_capacity: usize) -> Result<(), SetupError> {
     if dict_capacity == 0 {
         return Err(SetupError::InvalidConfig(
@@ -54,6 +62,8 @@ fn validate_config(config: &SetupConfig, dict_capacity: usize) -> Result<(), Set
     Ok(())
 }
 
+/// Since dictionary is created by schema,
+/// we don't to train twice the same schema.
 fn unique_schemas(config: &SetupConfig) -> Vec<&SchemaName> {
     let mut schemas = Vec::new();
     let mut seen = HashSet::new();
@@ -104,6 +114,9 @@ where
     .map_err(SetupError::from_conn)
 }
 
+/// Check if the retrain is required.
+/// It is done by checking the last row count of the dictionary store.
+/// If the last row count is less than the retrain growth, the retrain is required.
 fn retrain_required<C>(
     conn: &mut C,
     schemas: &[&SchemaName],
@@ -140,6 +153,9 @@ where
     }
 }
 
+/// Build the dictionary from the samples.
+/// It is done by collecting the samples from the tables, and building the dictionary.
+/// Using stream approach to avoid loading all the samples into memory.
 fn build_dictionary<C>(
     conn: &mut C,
     config: &SetupConfig,
@@ -181,6 +197,13 @@ where
         .map_err(|error| SetupError::DictTrain(error.to_string()))
 }
 
+/// Persist the dictionary in the database.
+/// It is done by inserting the dictionary into the dictionary store.
+/// The dictionary store is a table with the following columns:
+/// - id: the id of the dictionary
+/// - dict: the dictionary
+/// - trained_at: the timestamp of the training
+/// - row_count: the number of rows in the dictionary
 fn persist_dictionary<C>(
     conn: &mut C,
     schemas: &[&SchemaName],

@@ -25,6 +25,7 @@ static DECODER_CACHE: OnceLock<DecoderCache> = OnceLock::new();
 
 pub static LATEST_DICT_ID: AtomicU32 = AtomicU32::new(0);
 
+/// Load the raw dictionary from the database.
 fn load_raw_dict<C: DictStore>(dict_id: DictId, conn: &mut C) -> Result<Vec<u8>, DictError> {
     let rows = conn
         .query_blobs(&format!(
@@ -107,6 +108,14 @@ where
     Ok(decoder)
 }
 
+/// Warm is require to keep sync between the database and the caches.
+/// It is done by checking the latest dictionary id in the database.
+/// If the latest dictionary id is 0, the cache is empty.
+/// If the latest dictionary id is not 0, the cache is not empty.
+/// Then, the dictionary is loaded from the database and inserted into the caches.
+/// The dictionary is inserted into the caches is mandatory to ensure the dictionary is ready to be used.
+/// By [get_decoder_cached](crate::dict::get_decoder_cached), [get_encoder_cached](crate::dict::get_encoder_cached),
+/// the dictionary is cached in memory.
 pub fn warm_cache<C>(conn: &mut C, level: i32) -> Result<(), DictError>
 where
     C: SetupConnection,

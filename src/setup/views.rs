@@ -2,6 +2,8 @@ use crate::setup::config::{ColumnName, SchemaName, TableName};
 use crate::setup::{SetupConfig, SetupConnection, SetupError, SqlIdent};
 use crate::SetupTable;
 
+/// Doing the check if the table exists in the database. 
+/// Based on the schema and the table name.
 fn ensure_table_exists<C>(
     conn: &mut C,
     schema: &SchemaName,
@@ -27,6 +29,8 @@ where
     Ok(())
 }
 
+/// For each column in the table, check if the column exists in the database.
+/// Based on the table name and the schema.
 fn ensure_columns_exist<C>(
     conn: &mut C,
     table: &TableName,
@@ -53,6 +57,7 @@ where
     Ok(true)
 }
 
+/// Since only one view is created by schema, check if the view exists in the database.
 fn ensure_view_exists<C>(conn: &mut C, table: &SetupTable) -> Result<(), SetupError>
 where
     C: SetupConnection,
@@ -74,13 +79,14 @@ where
 
     conn.batch_execute(&format!(
         "CREATE VIEW IF NOT EXISTS {qualified} AS SELECT * FROM {}",
-        table.as_qualified_name() // "raw"."requests_raw", pas juste "requests_raw"
+        table.as_qualified_name()
     ))
     .map_err(SetupError::from_conn)?;
 
     Ok(())
 }
 
+/// Create decode views for [`SetupConfig`] tables.
 pub fn init_view<C>(conn: &mut C, config: &SetupConfig) -> Result<(), SetupError>
 where
     C: SetupConnection,

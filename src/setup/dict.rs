@@ -1,6 +1,7 @@
 use super::{SetupConfig, SetupConnection, SetupError};
 use crate::dict::{warm_cache, DICT_TABLE_NAME};
 
+/// For each tables in schema, check if the dictionary store exists in the database.
 fn ensure_table_exists<C>(conn: &mut C, config: &SetupConfig) -> Result<(), SetupError>
 where
     C: SetupConnection,
@@ -41,6 +42,10 @@ where
     Ok(())
 }
 
+/// Create the dictionary store for [`SetupConfig`] tables, then warm the dict cache.
+/// The warm cache is mandatory to ensure the dictionary is ready to be used.
+/// By [get_decoder_cached](crate::dict::get_decoder_cached), [get_encoder_cached](crate::dict::get_encoder_cached),
+/// the dictionary is cached in memory.
 pub fn init_dict<C>(conn: &mut C, config: &SetupConfig) -> Result<(), SetupError>
 where
     C: SetupConnection,
