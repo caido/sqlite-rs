@@ -2,7 +2,7 @@ use crate::setup::config::{ColumnName, SchemaName, TableName};
 use crate::setup::{SetupConfig, SetupConnection, SetupError, SqlIdent};
 use crate::SetupTable;
 
-/// Doing the check if the table exists in the database. 
+/// Doing the check if the table exists in the database.
 /// Based on the schema and the table name.
 fn ensure_table_exists<C>(
     conn: &mut C,
