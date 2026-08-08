@@ -83,15 +83,7 @@ pub trait SqlIdent {
 pub struct SetupConfig {
     pub tables: Vec<SetupTable>,
     pub compression_level: i32,
-}
-
-impl SetupConfig {
-    pub fn new(tables: Vec<SetupTable>, compression_level: i32) -> Self {
-        Self {
-            tables,
-            compression_level,
-        }
-    }
+    pub retrain_growth: usize,
 }
 
 #[derive(Debug, Clone)]

@@ -3,8 +3,6 @@ use crate::dict::types::DictId;
 use crate::setup::{SchemaName, SetupConfig, SetupConnection, SetupError, SqlIdent};
 use std::collections::HashSet;
 
-const RETRAIN_GROWTH: usize = 5000;
-
 pub fn train<C>(
     conn: &mut C,
     config: &SetupConfig,
@@ -19,9 +17,11 @@ where
     let available = ensure_enough_samples(conn, config, min_samples)?;
     let schemas = unique_schemas(config);
 
-    if !retrain_required(conn, &schemas, available)? {
+    let retrain_growth = config.retrain_growth.try_into().unwrap_or(5000);
+
+    if !retrain_required(conn, &schemas, available, retrain_growth)? {
         return Err(SetupError::DictTrain(format!(
-            "retrain skipped: need at least {RETRAIN_GROWTH} new samples since last train"
+            "retrain skipped: need at least {retrain_growth} new samples since last train"
         )));
     }
 
@@ -110,6 +110,7 @@ fn retrain_required<C>(
     conn: &mut C,
     schemas: &[&SchemaName],
     available: i64,
+    retrain_growth: i64,
 ) -> Result<bool, SetupError>
 where
     C: SetupConnection,
@@ -137,7 +138,7 @@ where
 
     match last_row_count {
         None => Ok(true),
-        Some(last) => Ok(available >= last + RETRAIN_GROWTH as i64),
+        Some(last) => Ok(available >= last + retrain_growth),
     }
 }
 

@@ -1,5 +1,8 @@
 use rusqlite::Connection;
-use sqlite_compress::{setup, ColumnName, SchemaName, SetupConfig, SetupTable, TableName};
+use sqlite_compress::{
+    setup, ColumnName, SchemaName, SetupConfig, SetupTable, TableName, DEFAULT_LEVEL,
+    DEFAULT_RETRAIN_GROWTH,
+};
 mod common;
 
 #[test]
@@ -19,7 +22,8 @@ fn setup_table_does_not_exist() {
             schema: SchemaName::new("raw"),
             columns: vec![ColumnName::new("data")],
         }],
-        compression_level: sqlite_compress::DEFAULT_LEVEL,
+        compression_level: DEFAULT_LEVEL,
+        retrain_growth: DEFAULT_RETRAIN_GROWTH,
     };
 
     let mut wrapper = common::RusqliteConn::new(&conn);
@@ -54,6 +58,7 @@ fn setup_table_already_exists() {
             columns: vec![ColumnName::new("data")],
         }],
         compression_level: sqlite_compress::DEFAULT_LEVEL,
+        retrain_growth: DEFAULT_RETRAIN_GROWTH,
     };
 
     let mut wrapper = common::RusqliteConn::new(&conn);

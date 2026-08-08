@@ -1,6 +1,7 @@
 use rusqlite::Connection;
 use sqlite_compress::{
-    setup, ColumnName, SchemaName, SetupConfig, SetupError, SetupTable, TableName,
+    setup, ColumnName, SchemaName, SetupConfig, SetupError, SetupTable, TableName, DEFAULT_LEVEL,
+    DEFAULT_RETRAIN_GROWTH,
 };
 mod common;
 
@@ -22,7 +23,8 @@ fn setup_skips_existing_view() {
             schema: SchemaName::new("raw"),
             columns: vec![ColumnName::new("data")],
         }],
-        compression_level: sqlite_compress::DEFAULT_LEVEL,
+        retrain_growth: DEFAULT_RETRAIN_GROWTH,
+        compression_level: DEFAULT_LEVEL,
     };
 
     let mut wrapper = common::RusqliteConn::new(&conn);
@@ -46,7 +48,8 @@ fn setup_creates_view() {
             schema: SchemaName::new("raw"),
             columns: vec![ColumnName::new("data")],
         }],
-        compression_level: sqlite_compress::DEFAULT_LEVEL,
+        compression_level: DEFAULT_LEVEL,
+        retrain_growth: DEFAULT_RETRAIN_GROWTH,
     };
 
     let mut wrapper = common::RusqliteConn::new(&conn);
@@ -81,7 +84,8 @@ fn setup_rejects_missing_column() {
             schema: SchemaName::new("raw"),
             columns: vec![ColumnName::new("unvalid_column")],
         }],
-        compression_level: sqlite_compress::DEFAULT_LEVEL,
+        compression_level: DEFAULT_LEVEL,
+        retrain_growth: DEFAULT_RETRAIN_GROWTH,
     };
 
     let mut wrapper = common::RusqliteConn::new(&conn);
@@ -110,7 +114,8 @@ fn setup_rejects_missing_table() {
             schema: SchemaName::new("raw"),
             columns: vec![],
         }],
-        compression_level: sqlite_compress::DEFAULT_LEVEL,
+        compression_level: DEFAULT_LEVEL,
+        retrain_growth: DEFAULT_RETRAIN_GROWTH,
     };
 
     let mut wrapper = common::RusqliteConn::new(&conn);

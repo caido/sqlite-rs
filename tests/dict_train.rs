@@ -1,6 +1,7 @@
 use rusqlite::{params, Connection};
 use sqlite_compress::{
     setup, train, ColumnName, SchemaName, SetupConfig, SetupTable, TableName, DEFAULT_LEVEL,
+    DEFAULT_RETRAIN_GROWTH,
 };
 
 mod common;
@@ -32,6 +33,7 @@ fn train_persists_a_new_dictionary() {
             columns: vec![ColumnName::new("data")],
         }],
         compression_level: DEFAULT_LEVEL,
+        retrain_growth: DEFAULT_RETRAIN_GROWTH,
     };
     let mut wrapper = common::RusqliteConn::new(&conn);
     setup(&mut wrapper, &config).unwrap();
@@ -57,6 +59,7 @@ fn sample_config() -> SetupConfig {
             columns: vec![ColumnName::new("data")],
         }],
         compression_level: DEFAULT_LEVEL,
+        retrain_growth: DEFAULT_RETRAIN_GROWTH,
     }
 }
 fn setup_raw_table(conn: &Connection) {
@@ -97,6 +100,7 @@ fn train_rejects_empty_samples() {
             columns: vec![ColumnName::new("data")],
         }],
         compression_level: DEFAULT_LEVEL,
+        retrain_growth: DEFAULT_RETRAIN_GROWTH,
     };
     let mut wrapper = common::RusqliteConn::new(&conn);
     setup(&mut wrapper, &config).unwrap();
