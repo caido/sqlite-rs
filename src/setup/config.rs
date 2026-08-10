@@ -2,7 +2,7 @@ use crate::dict::DICT_TABLE_NAME;
 use crate::utils::{quote_identifier, quote_qualified};
 use std::fmt::Display;
 
-const VIEW_SUFFIX: &str = "_zstd_decoded";
+const VIEW_SUFFIX: &str = "__zstd_decoded";
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct SchemaName(String);

@@ -55,7 +55,7 @@ fn setup_creates_view() {
     let mut wrapper = common::RusqliteConn::new(&conn);
     setup(&mut wrapper, &config).unwrap();
 
-    let view_name = "requests_raw_zstd_decoded";
+    let view_name = "requests_raw__zstd_decoded";
     let count: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM raw.sqlite_master WHERE type = 'view' AND name = ?1",

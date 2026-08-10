@@ -30,7 +30,7 @@ Rust library for **zstd dictionary compression** on SQLite blob columns. It trai
 ```mermaid
 flowchart LR
   subgraph setup_flow [setup]
-    A[Validate tables/columns] --> B[Create *_zstd_decoded views]
+    A[Validate tables/columns] --> B[Create *__zstd_decoded views]
     B --> C[Create __zstd_dicts]
     C --> D[Warm encoder/decoder LRU]
   end
