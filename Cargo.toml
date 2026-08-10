@@ -6,6 +6,8 @@ edition = "2021"
 [dependencies]
 sqlite-loadable = {git = "https://github.com/caido/dependency-sqlite-loadable-rs",branch = "caido",default-features = false,features = ["dynamic"]}
 zstd = { version = "0.13.3", features = ["zdict_builder"] }
+thiserror = "2.0.19"
+parking_lot = "0.12.5"
 
 [dev-dependencies]
 rusqlite = { version = "0.32", features = ["bundled"] }

@@ -1,10 +1,7 @@
-use crate::{
-    dict::warm_cache,
-    setup::{SetupConfig, SetupConnection, SetupError},
-};
+use super::{SetupConfig, SetupConnection, SetupError};
+use crate::dict::{warm_cache, DICT_TABLE_NAME};
 
-const DICT_TABLE_NAME: &str = "_zstd_dicts";
-
+/// For each tables in schema, check if the dictionary store exists in the database.
 fn ensure_table_exists<C>(conn: &mut C, config: &SetupConfig) -> Result<(), SetupError>
 where
     C: SetupConnection,
@@ -12,15 +9,15 @@ where
     let mut schemas_done = std::collections::HashSet::new();
 
     for table in &config.tables {
-        if !schemas_done.insert(table.schema.as_str()) {
+        if !schemas_done.insert(&table.schema) {
             continue;
         }
 
-        let schema = table.schema.as_str();
+        let schema = table.as_qualified_schema_name();
 
         let count = conn
             .query_i64(&format!(
-                "SELECT COUNT(*) FROM \"{schema}\".sqlite_master \
+                "SELECT COUNT(*) FROM {schema}.sqlite_master \
          WHERE type = 'table' AND name = '{DICT_TABLE_NAME}'"
             ))
             .map_err(SetupError::from_conn)?;
@@ -31,8 +28,8 @@ where
 
         conn.batch_execute(&format!(
             "
-        CREATE TABLE IF NOT EXISTS \"{schema}\".{DICT_TABLE_NAME} (
-            id INTEGER PRIMARY KEY,
+        CREATE TABLE IF NOT EXISTS {schema}.{DICT_TABLE_NAME} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             dict BLOB NOT NULL,
             trained_at INTEGER NOT NULL,
             row_count INTEGER NOT NULL
@@ -45,6 +42,10 @@ where
     Ok(())
 }
 
+/// Create the dictionary store for [`SetupConfig`] tables, then warm the dict cache.
+/// The warm cache is mandatory to ensure the dictionary is ready to be used.
+/// By [get_decoder_cached](crate::dict::get_decoder_cached), [get_encoder_cached](crate::dict::get_encoder_cached),
+/// the dictionary is cached in memory.
 pub fn init_dict<C>(conn: &mut C, config: &SetupConfig) -> Result<(), SetupError>
 where
     C: SetupConnection,

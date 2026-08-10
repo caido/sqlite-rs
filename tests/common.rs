@@ -52,8 +52,20 @@ impl SetupConnection for RusqliteConn<'_> {
         self.0.query_row(sql, [], |row| row.get(0))
     }
 
-    fn execute_blob(&mut self, sql: &str, blob: &[u8]) -> Result<(), Self::Error> {
-        self.0.execute(sql, [blob])?;
+    fn execute_blob(&mut self, sql: &str, blob: &[u8]) -> Result<i64, Self::Error> {
+        self.0.query_row(sql, [blob], |row| row.get(0))
+    }
+
+    fn for_each_blob<F>(&mut self, sql: &str, mut f: F) -> Result<(), rusqlite::Error>
+    where
+        F: FnMut(&[u8]) -> Result<(), rusqlite::Error>,
+    {
+        let mut stmt = self.0.prepare(sql)?;
+        let mut rows = stmt.query([])?;
+        while let Some(row) = rows.next()? {
+            let blob: &[u8] = row.get_ref(0)?.as_blob()?;
+            f(blob)?;
+        }
         Ok(())
     }
 }
