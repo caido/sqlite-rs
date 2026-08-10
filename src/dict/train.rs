@@ -1,7 +1,9 @@
-use crate::dict::insert_into_caches;
-use crate::dict::types::DictId;
-use crate::setup::{SchemaName, SetupConfig, SetupConnection, SetupError, SqlIdent};
 use std::collections::HashSet;
+
+use crate::{
+    dict::{insert_into_caches, types::DictId},
+    setup::{SchemaName, SetupConfig, SetupConnection, SetupError, SqlIdent},
+};
 
 /// Train the dictionary if the condition is met (enough samples and retrain growth).
 /// It is done by collecting the samples from the tables, and building the dictionary.

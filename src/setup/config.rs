@@ -1,6 +1,9 @@
-use crate::dict::DICT_TABLE_NAME;
-use crate::utils::{quote_identifier, quote_qualified};
 use std::fmt::Display;
+
+use crate::{
+    dict::DICT_TABLE_NAME,
+    utils::{quote_identifier, quote_qualified},
+};
 
 const VIEW_SUFFIX: &str = "_zstd_decoded";
 

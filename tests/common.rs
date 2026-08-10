@@ -1,9 +1,7 @@
-use rusqlite::Connection;
-use sqlite_compress::DictStore;
-use sqlite_compress::SetupConnection;
 use std::sync::Arc;
 
-use sqlite_compress::DictError;
+use rusqlite::Connection;
+use sqlite_compress::{DictError, DictStore, SetupConnection};
 use zstd::dict::{DecoderDictionary, EncoderDictionary};
 
 #[allow(dead_code)]

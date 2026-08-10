@@ -1,13 +1,15 @@
 use rusqlite::Connection;
-use sqlite_compress::{compress, decompress, get_decoder, get_encoder, DEFAULT_LEVEL};
+use sqlite_compress::{
+    compress, decompress, get_decoder, get_encoder, DictId, Header, DEFAULT_LEVEL,
+};
 
 mod common;
 use crate::common::{expect_decoder, expect_encoder};
 
-fn seed_dict(conn: &Connection, id: u32) {
+fn seed_dict(conn: &Connection, id: DictId) {
     conn.execute_batch(
         r#"
-        CREATE TABLE IF NOT EXISTS _zstd_dicts (
+        CREATE TABLE IF NOT EXISTS __zstd_dicts (
             id INTEGER PRIMARY KEY,
             dict BLOB NOT NULL,
             trained_at INTEGER NOT NULL,
@@ -24,9 +26,9 @@ fn seed_dict(conn: &Connection, id: u32) {
     let dict = zstd::dict::from_samples(&sample_refs, 1024).unwrap();
 
     conn.execute(
-        "INSERT OR REPLACE INTO _zstd_dicts (id, dict, trained_at, row_count) \
+        "INSERT OR REPLACE INTO __zstd_dicts (id, dict, trained_at, row_count) \
          VALUES (?1, ?2, strftime('%s','now'), 32)",
-        rusqlite::params![id, dict],
+        rusqlite::params![id.get(), dict],
     )
     .unwrap();
 }
@@ -34,7 +36,7 @@ fn seed_dict(conn: &Connection, id: u32) {
 #[test]
 fn compress_decompress_roundtrip_via_cached_dict() {
     let conn = Connection::open_in_memory().unwrap();
-    let id = 2_001;
+    let id = DictId::new(2_001);
     seed_dict(&conn, id);
 
     let mut wrapper = common::RusqliteConn::new(&conn);
@@ -46,8 +48,9 @@ fn compress_decompress_roundtrip_via_cached_dict() {
 
     let compressed = compress(original, DEFAULT_LEVEL).unwrap();
 
-    let header = u32::from_le_bytes(compressed[..4].try_into().unwrap());
-    assert_eq!(header, id);
+    let (header, _) = Header::parse(&compressed).unwrap();
+
+    assert_eq!(header.dict_id.get(), id.get());
     assert!(compressed.len() > 4);
 
     let decompressed = decompress(&compressed).unwrap();

@@ -1,11 +1,16 @@
-use crate::dict::errors::DictError;
-use crate::dict::lru::DictLru;
-use crate::setup::{DictStore, SetupConnection};
-use crate::utils::quote_identifier;
+use std::sync::{
+    atomic::{AtomicU32, Ordering},
+    Arc, OnceLock,
+};
+
 use parking_lot::Mutex;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, OnceLock};
 use zstd::dict::{DecoderDictionary, EncoderDictionary};
+
+use crate::{
+    dict::{errors::DictError, lru::DictLru},
+    setup::{DictStore, SetupConnection},
+    utils::quote_identifier,
+};
 
 pub mod errors;
 mod lru;
@@ -41,12 +46,10 @@ fn load_raw_dict<C: DictStore>(dict_id: DictId, conn: &mut C) -> Result<Vec<u8>,
     rows.into_iter().next().ok_or(DictError::NotFound(dict_id))
 }
 
-#[expect(dead_code)]
 pub fn get_encoder_cached(dict_id: DictId) -> Option<Arc<EncoderDictionary<'static>>> {
     ENCODER_CACHE.get()?.lock().peek(dict_id)
 }
 
-#[expect(dead_code)]
 pub fn get_decoder_cached(dict_id: DictId) -> Option<Arc<DecoderDictionary<'static>>> {
     DECODER_CACHE.get()?.lock().peek(dict_id)
 }

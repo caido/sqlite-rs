@@ -1,6 +1,10 @@
-use crate::setup::config::{ColumnName, SchemaName, TableName};
-use crate::setup::{SetupConfig, SetupConnection, SetupError, SqlIdent};
-use crate::SetupTable;
+use crate::{
+    setup::{
+        config::{ColumnName, SchemaName, TableName},
+        SetupConfig, SetupConnection, SetupError, SqlIdent,
+    },
+    SetupTable,
+};
 
 /// Doing the check if the table exists in the database.
 /// Based on the schema and the table name.
