@@ -25,12 +25,10 @@ impl PayloadKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SizeBucket {
-    /// ~100–300 B
     Tiny,
-    /// ~500 B–2 KiB
     Small,
-    /// ~5–20 KiB
     Medium,
+    Large,
 }
 
 impl SizeBucket {
@@ -39,6 +37,7 @@ impl SizeBucket {
             Self::Tiny => "tiny",
             Self::Small => "small",
             Self::Medium => "medium",
+            Self::Large => "large",
         }
     }
 
@@ -47,10 +46,10 @@ impl SizeBucket {
             Self::Tiny => (100, 300),
             Self::Small => (500, 2 * 1024),
             Self::Medium => (5 * 1024, 20 * 1024),
+            Self::Large => (20 * 1024, 100 * 1024),
         }
     }
 
-    /// Weighted pick: Small 50%, Medium 35%, Tiny 15%.
     pub fn from_weight(weight: u32) -> Self {
         match weight % 100 {
             0..=14 => Self::Tiny,

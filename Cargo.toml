@@ -22,15 +22,9 @@ rusqlite = { version = "0.32", features = ["bundled", "load_extension"] }
 
 [features]
 default = []
-bench-tools = ["dep:clap", "dep:rand", "dep:rusqlite"]
 
 [lib]
 crate-type=["cdylib","rlib"]
-
-[[bin]]
-name = "gen-dataset"
-path = "benches/gen_dataset.rs"
-required-features = ["bench-tools"]
 
 [[bench]]
 name = "insert_basic"
@@ -38,4 +32,12 @@ harness = false
 
 [[bench]]
 name = "select_basic"
+harness = false
+
+[[bench]]
+name = "compress_basic"
+harness = false
+
+[[bench]]
+name = "decompress_basic"
 harness = false

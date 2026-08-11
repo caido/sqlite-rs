@@ -25,7 +25,6 @@ const USERNAMES: &[&str] = &[
     "alice", "bob", "carol", "dave", "erin", "frank", "grace", "heidi",
 ];
 
-/// Deterministic stream of HTTP-like payloads.
 pub fn generate_stream(seed: u64, count: u64) -> impl Iterator<Item = Sample> {
     let mut rng = StdRng::seed_from_u64(seed);
     (0..count).map(move |i| {
