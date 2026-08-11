@@ -5,7 +5,7 @@ use crate::{
     utils::{quote_identifier, quote_qualified},
 };
 
-const VIEW_SUFFIX: &str = "_zstd_decoded";
+const VIEW_SUFFIX: &str = "__zstd_decoded";
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct SchemaName(String);
