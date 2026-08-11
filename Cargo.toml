@@ -14,11 +14,8 @@ zerocopy = { version = "0.8.56", features = ["derive"] }
 [dev-dependencies]
 clap = { version = "4", features = ["derive"] }
 criterion = "0.5"
-rand = "0.8"
 rusqlite = { version = "0.32", features = ["bundled", "load_extension"] }
-clap = { version = "4", features = ["derive"], optional = true }
-rand = { version = "0.8", optional = true }
-rusqlite = { version = "0.32", features = ["bundled", "load_extension"], optional = true }
+rand = { version = "0.8"}
 
 [features]
 default = []

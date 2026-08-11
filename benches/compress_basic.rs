@@ -9,7 +9,6 @@ use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criteri
 use sqlite_compress::{compress, DEFAULT_LEVEL, LATEST_DICT_ID};
 
 fn bench_compress(c: &mut Criterion) {
-
     let mut group = c.benchmark_group("compress");
 
     for kind in utils::PAYLOAD_KINDS {
