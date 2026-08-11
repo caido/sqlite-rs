@@ -6,7 +6,7 @@ use zstd::bulk::Compressor;
 use crate::{
     conn::SqliteConn,
     dict::{errors::DictError, get_encoder, get_encoder_cached, DictId, LATEST_DICT_ID},
-    functions::{errors::CodecError, header::wrap, DEFAULT_LEVEL},
+    functions::{errors::CodecError, header::wrap, types::Level, DEFAULT_LEVEL},
 };
 
 fn compress_with_encoder(
@@ -22,13 +22,13 @@ fn compress_with_encoder(
     wrap(dict_id, data.len(), compressed)
 }
 
-fn compress_raw(data: &[u8], level: i32) -> std::result::Result<Vec<u8>, CodecError> {
+fn compress_raw(data: &[u8], level: Level) -> std::result::Result<Vec<u8>, CodecError> {
     let compressed =
-        zstd::stream::encode_all(data, level).map_err(CodecError::CompressionFailed)?;
+        zstd::stream::encode_all(data, level.get()).map_err(CodecError::CompressionFailed)?;
     wrap(DictId::from(0), data.len(), compressed)
 }
 
-pub fn compress(data: &[u8], level: i32) -> std::result::Result<Vec<u8>, CodecError> {
+pub fn compress(data: &[u8], level: Level) -> std::result::Result<Vec<u8>, CodecError> {
     let id = DictId::from(LATEST_DICT_ID.load(Ordering::Relaxed));
     if id.get() != 0 {
         if let Some(encoder) = get_encoder_cached(id) {

@@ -1,13 +1,16 @@
+use zerocopy::{little_endian::U32, FromBytes, Immutable, IntoBytes, KnownLayout, TryFromBytes};
+
 use crate::{dict::DictId, functions::errors::CodecError};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, TryFromBytes, KnownLayout, Immutable)]
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CodecKind {
     Zstd = 0,
 }
 
 impl TryFrom<u8> for CodecKind {
     type Error = CodecError;
+
     fn try_from(v: u8) -> Result<Self, Self::Error> {
         match v {
             0 => Ok(Self::Zstd),
@@ -16,52 +19,40 @@ impl TryFrom<u8> for CodecKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable)]
+#[repr(C)]
 pub struct Header {
-    pub codec: CodecKind,
-    pub dict_id: DictId,
-    pub uncompressed_len: u32,
+    pub codec: u8,
+    pub dict_id: U32,
+    pub uncompressed_len: U32,
 }
 
 impl Header {
-    pub const WIRE_SIZE: usize = 1 + 4 + 4;
+    pub const WIRE_SIZE: usize = size_of::<Self>();
 
-    pub fn new(dict_id: DictId, uncompressed_len: usize) -> Result<Self, CodecError> {
-        let uncompressed_len =
-            u32::try_from(uncompressed_len).map_err(|_| CodecError::PayloadTooLarge)?;
-        Ok(Self {
-            codec: CodecKind::Zstd,
-            dict_id,
-            uncompressed_len,
-        })
+    pub fn new(dict_id: DictId, uncompressed_len: u32) -> Self {
+        Self {
+            codec: CodecKind::Zstd as u8,
+            dict_id: U32::new(dict_id.get()),
+            uncompressed_len: U32::new(uncompressed_len),
+        }
     }
 
     pub fn write(&self, out: &mut Vec<u8>) {
-        out.push(self.codec as u8);
-        out.extend_from_slice(&self.dict_id.get().to_le_bytes());
-        out.extend_from_slice(&self.uncompressed_len.to_le_bytes());
+        out.extend_from_slice(self.as_bytes());
     }
 
     pub fn parse(blob: &[u8]) -> Result<(Self, &[u8]), CodecError> {
-        let bytes = blob
-            .get(..Self::WIRE_SIZE)
-            .ok_or(CodecError::MalformedHeader)?;
-        let codec = CodecKind::try_from(bytes[0])?;
-        let dict_id = DictId::from(u32::from_le_bytes(bytes[1..5].try_into().unwrap()));
-        let uncompressed_len = u32::from_le_bytes(bytes[5..9].try_into().unwrap());
-        Ok((
-            Self {
-                codec,
-                dict_id,
-                uncompressed_len,
-            },
-            &blob[Self::WIRE_SIZE..],
-        ))
+        let (header, rest) =
+            Self::ref_from_prefix(blob).map_err(|_| CodecError::MalformedHeader)?;
+        let _codec = CodecKind::try_from(header.codec)?;
+        Ok((*header, rest))
     }
 }
 
 pub fn wrap(dict_id: DictId, original_len: usize, payload: Vec<u8>) -> Result<Vec<u8>, CodecError> {
-    let header = Header::new(dict_id, original_len)?;
+    let uncompressed_len = u32::try_from(original_len).map_err(|_| CodecError::PayloadTooLarge)?;
+    let header = Header::new(dict_id, uncompressed_len);
     let mut out = Vec::with_capacity(Header::WIRE_SIZE + payload.len());
     header.write(&mut out);
     out.extend_from_slice(&payload);

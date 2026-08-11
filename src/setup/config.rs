@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 use crate::{
     dict::DICT_TABLE_NAME,
+    functions::Level,
     utils::{quote_identifier, quote_qualified},
 };
 
@@ -85,7 +86,7 @@ pub trait SqlIdent {
 #[derive(Debug, Clone)]
 pub struct SetupConfig {
     pub tables: Vec<SetupTable>,
-    pub compression_level: i32,
+    pub compression_level: Level,
     pub retrain_growth: usize,
 }
 

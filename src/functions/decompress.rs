@@ -8,7 +8,7 @@ use crate::{
         errors::CodecError::{self},
         header::Header,
     },
-    DictError,
+    DictError, DictId,
 };
 
 fn decompress_with_decoder(
@@ -29,13 +29,16 @@ fn decompress_raw(
 
 pub fn decompress(blob: &[u8]) -> std::result::Result<Vec<u8>, CodecError> {
     let (header, payload) = Header::parse(blob)?;
-    if header.dict_id.get() != 0 {
-        if let Some(decoder) = get_decoder_cached(header.dict_id) {
-            return decompress_with_decoder(payload, &decoder, header.uncompressed_len as usize)
+    let dict_id = DictId::from(header.dict_id.get());
+    let len = header.uncompressed_len.get() as usize;
+
+    if dict_id.get() != 0 {
+        if let Some(decoder) = get_decoder_cached(dict_id) {
+            return decompress_with_decoder(payload, &decoder, len)
                 .map_err(CodecError::DecompressionFailed);
         }
     }
-    decompress_raw(payload, header.uncompressed_len as usize)
+    decompress_raw(payload, len)
 }
 
 pub fn sqlite_decompress(
@@ -49,17 +52,19 @@ pub fn sqlite_decompress(
     let blob = api::value_blob(value);
     let (header, payload) = Header::parse(blob)?;
     let mut conn = SqliteConn::from_context(context);
-    let decompressed = if header.dict_id.get() != 0 {
-        match get_decoder(header.dict_id, &mut conn) {
-            Ok(decoder) => {
-                decompress_with_decoder(payload, &decoder, header.uncompressed_len as usize)
-                    .map_err(CodecError::DecompressionFailed)?
-            }
-            Err(DictError::NotReady) => decompress_raw(payload, header.uncompressed_len as usize)?,
+
+    let dict_id = DictId::from(header.dict_id.get());
+    let len = header.uncompressed_len.get() as usize;
+
+    let decompressed = if dict_id.get() != 0 {
+        match get_decoder(dict_id, &mut conn) {
+            Ok(decoder) => decompress_with_decoder(payload, &decoder, len)
+                .map_err(CodecError::DecompressionFailed)?,
+            Err(DictError::NotReady) => decompress_raw(payload, len)?,
             Err(e) => return Err(CodecError::DictError(e).into()),
         }
     } else {
-        decompress_raw(payload, header.uncompressed_len as usize)?
+        decompress_raw(payload, len)?
     };
 
     api::result_blob(context, &decompressed);
