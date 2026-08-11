@@ -54,7 +54,8 @@ impl SizeBucket {
         match weight % 100 {
             0..=14 => Self::Tiny,
             15..=64 => Self::Small,
-            _ => Self::Medium,
+            65..=89 => Self::Medium,
+            _ => Self::Large,
         }
     }
 }

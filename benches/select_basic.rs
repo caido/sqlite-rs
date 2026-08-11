@@ -38,7 +38,7 @@ fn select_decompressed_sql(conn: &Connection) -> Vec<u8> {
 }
 
 fn bench_select(c: &mut Criterion) {
-    let mut group = c.benchmark_group("insert");
+    let mut group = c.benchmark_group("select");
 
     for kind in utils::PAYLOAD_KINDS {
         for size in utils::SIZE_BUCKETS {
