@@ -10,8 +10,7 @@ use std::path::PathBuf;
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use dataset::{generate_sample, PayloadKind, SizeBucket};
-use rand::rngs::StdRng;
-use rand::SeedableRng;
+use rand::{rngs::StdRng, SeedableRng};
 use rusqlite::{Connection, LoadExtensionGuard};
 use sqlite_compress::{compress, decompress, DEFAULT_LEVEL};
 
@@ -76,11 +75,9 @@ fn open_filled_with_extension(data: &[u8]) -> Connection {
 }
 
 fn select_blob(conn: &Connection) -> Vec<u8> {
-    conn.query_row(
-        "SELECT data FROM requests_raw WHERE id = 1",
-        [],
-        |row| row.get(0),
-    )
+    conn.query_row("SELECT data FROM requests_raw WHERE id = 1", [], |row| {
+        row.get(0)
+    })
     .expect("select")
 }
 

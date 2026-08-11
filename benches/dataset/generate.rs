@@ -1,5 +1,4 @@
-use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 
 use super::types::{PayloadKind, Sample, SizeBucket};
 
@@ -91,9 +90,7 @@ fn wrap_http(rng: &mut impl Rng, index: u64, kind: PayloadKind, body: &[u8]) -> 
 
 fn json_body(rng: &mut impl Rng, index: u64, target: usize) -> Vec<u8> {
     let user = USERNAMES[rng.gen_range(0..USERNAMES.len())];
-    let mut body = format!(
-        "{{\"id\":{index},\"user\":\"{user}\",\"status\":\"ok\",\"items\":["
-    );
+    let mut body = format!("{{\"id\":{index},\"user\":\"{user}\",\"status\":\"ok\",\"items\":[");
 
     let mut item = 0u32;
     while body.len() + 80 < target {
@@ -135,9 +132,8 @@ fn html_body(rng: &mut impl Rng, index: u64, target: usize) -> Vec<u8> {
 fn form_body(rng: &mut impl Rng, index: u64, target: usize) -> Vec<u8> {
     let user = USERNAMES[rng.gen_range(0..USERNAMES.len())];
     let token: u64 = rng.gen();
-    let mut body = format!(
-        "username={user}&token={token:016x}&redirect=%2Fdashboard&request_id={index}"
-    );
+    let mut body =
+        format!("username={user}&token={token:016x}&redirect=%2Fdashboard&request_id={index}");
 
     let mut field = 0u32;
     while body.len() + 32 < target {

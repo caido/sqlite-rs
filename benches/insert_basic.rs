@@ -1,16 +1,14 @@
 mod dataset;
 
-use std::path::PathBuf;
-use std::sync::atomic::Ordering;
+use std::{path::PathBuf, sync::atomic::Ordering};
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use dataset::{generate_sample, PayloadKind, SizeBucket};
-use rand::rngs::StdRng;
-use rand::SeedableRng;
+use rand::{rngs::StdRng, SeedableRng};
 use rusqlite::{Connection, LoadExtensionGuard};
 use sqlite_compress::{
-    compress, setup, train, DictStore, SetupConfig, SetupConnection, SetupTable, LATEST_DICT_ID,
-    DEFAULT_LEVEL,
+    compress, setup, train, ColumnName, DictId, DictStore, SchemaName, SetupConfig,
+    SetupConnection, SetupTable, TableName, DEFAULT_LEVEL, LATEST_DICT_ID,
 };
 
 const DICT_TRAIN_SAMPLES: u64 = 128;
@@ -78,11 +76,12 @@ fn open_table_with_extension() -> Connection {
 fn bench_config() -> SetupConfig {
     SetupConfig {
         tables: vec![SetupTable {
-            name: "requests_raw".to_string(),
-            schema: "raw".to_string(),
-            columns: vec!["data".to_string()],
+            name: TableName::new("requests_raw"),
+            schema: SchemaName::new("raw"),
+            columns: vec![ColumnName::new("data")],
         }],
         compression_level: DEFAULT_LEVEL,
+        retrain_growth: 5000,
     }
 }
 
@@ -107,15 +106,27 @@ impl SetupConnection for RusqliteConn<'_> {
         self.0.query_row(sql, [], |row| row.get(0))
     }
 
-    fn execute_blob(&mut self, sql: &str, blob: &[u8]) -> Result<(), Self::Error> {
-        self.0.execute(sql, [blob])?;
+    fn execute_blob(&mut self, sql: &str, blob: &[u8]) -> Result<i64, Self::Error> {
+        Ok(self.0.execute(sql, [blob])? as i64)
+    }
+
+    fn for_each_blob<F>(&mut self, sql: &str, mut f: F) -> Result<(), Self::Error>
+    where
+        F: FnMut(&[u8]) -> Result<(), Self::Error>,
+    {
+        let mut stmt = self.0.prepare(sql)?;
+        let mut rows = stmt.query([])?;
+        while let Some(row) = rows.next()? {
+            let blob: &[u8] = row.get_ref(0)?.as_blob()?;
+            f(blob)?;
+        }
         Ok(())
     }
 }
 
 /// Seed a table with JSON samples, then train via the public `train` API (outside the timed path).
 /// Returns the dictionary id (also cached in `LATEST_DICT_ID`).
-fn setup_trained_dict() -> u32 {
+fn setup_trained_dict() -> DictId {
     let conn = Connection::open_in_memory().expect("open dict db");
     conn.execute_batch(
         "
@@ -150,7 +161,7 @@ fn setup_trained_dict() -> u32 {
     )
     .expect("train dictionary");
 
-    assert_eq!(LATEST_DICT_ID.load(Ordering::Relaxed), dict_id);
+    assert_eq!(LATEST_DICT_ID.load(Ordering::Relaxed), dict_id.get());
     dict_id
 }
 
@@ -165,7 +176,11 @@ fn bench_insert(c: &mut Criterion) {
     let dict_id = setup_trained_dict();
     let with_dict = compress(&sample, DEFAULT_LEVEL).expect("compress with dict");
     let dict_header = u32::from_le_bytes(with_dict[..4].try_into().unwrap());
-    assert_eq!(dict_header, dict_id, "expected dict-backed compress after train");
+    assert_eq!(
+        dict_header,
+        dict_id.get(),
+        "expected dict-backed compress after train"
+    );
 
     eprintln!(
         "sample: kind=json bucket=small raw_bytes={} dict_id={dict_id}",
@@ -214,7 +229,7 @@ fn bench_insert(c: &mut Criterion) {
     });
 
     group.bench_function(BenchmarkId::new("compress_dict", "json_small"), |b| {
-        LATEST_DICT_ID.store(dict_id, Ordering::Relaxed);
+        LATEST_DICT_ID.store(dict_id.get(), Ordering::Relaxed);
         b.iter_batched(
             open_table,
             |conn| {
@@ -222,7 +237,7 @@ fn bench_insert(c: &mut Criterion) {
                     compress(black_box(sample.as_slice()), DEFAULT_LEVEL).expect("compress");
                 debug_assert_eq!(
                     u32::from_le_bytes(compressed[..4].try_into().unwrap()),
-                    dict_id
+                    dict_id.get()
                 );
                 conn.execute(
                     "INSERT INTO requests_raw (data) VALUES (?1)",

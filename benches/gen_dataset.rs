@@ -1,14 +1,16 @@
 mod dataset;
 
-use std::path::PathBuf;
-use std::time::Instant;
+use std::{path::PathBuf, time::Instant};
 
 use clap::Parser;
 use dataset::{generate_stream, PayloadKind, SizeBucket};
-use rusqlite::{params, Connection};
+use rusqlite::Connection;
 
 #[derive(Parser, Debug)]
-#[command(name = "gen_dataset", about = "Generate HTTP payload dataset for benches")]
+#[command(
+    name = "gen_dataset",
+    about = "Generate HTTP payload dataset for benches"
+)]
 struct Args {
     /// Number of rows to generate
     #[arg(long, default_value_t = 1_000_000)]
@@ -105,14 +107,14 @@ fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             }
             total_bytes += sample.bytes.len() as u64;
 
-            stmt.execute(params![
+            stmt.execute((
                 id,
                 sample.kind.as_str(),
                 sample.size_bucket.as_str(),
-                sample.bytes,
-            ])?;
+                sample.bytes.as_slice(),
+            ))?;
 
-            if id % args.batch_size == 0 {
+            if id.is_multiple_of(args.batch_size) {
                 drop(stmt);
                 tx.commit()?;
                 tx = conn.transaction()?;

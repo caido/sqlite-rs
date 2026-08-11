@@ -14,8 +14,6 @@ impl PayloadKind {
         }
     }
 
-    /// Weighted pick: JSON 40%, HTML 25%, Form 35% of the remaining MVP mix
-    /// (JSON 40 / HTML 25 / Form 35 among the three kinds).
     pub fn from_weight(weight: u32) -> Self {
         match weight % 100 {
             0..=39 => Self::Json,
