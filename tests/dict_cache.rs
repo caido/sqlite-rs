@@ -1,10 +1,7 @@
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use rusqlite::Connection;
-use sqlite_compress::{
-    get_decoder, get_encoder, DictError, DictStore, DEFAULT_LEVEL, LATEST_DICT_ID,
-};
+use sqlite_compress::{get_decoder, get_encoder, DictError, DictId, DictStore, DEFAULT_LEVEL};
 use zstd::bulk::{Compressor, Decompressor};
 
 mod common;
@@ -14,7 +11,7 @@ use crate::common::{expect_decoder, expect_encoder};
 fn ensure_dicts_table(conn: &Connection) {
     conn.execute_batch(
         r#"
-        CREATE TABLE IF NOT EXISTS _zstd_dicts (
+        CREATE TABLE IF NOT EXISTS __zstd_dicts (
             id INTEGER PRIMARY KEY,
             dict BLOB NOT NULL,
             trained_at INTEGER NOT NULL
@@ -24,7 +21,7 @@ fn ensure_dicts_table(conn: &Connection) {
     .unwrap();
 }
 
-fn seed_dict(conn: &Connection, id: u32) {
+fn seed_dict(conn: &Connection, id: DictId) {
     ensure_dicts_table(conn);
 
     let samples: Vec<Vec<u8>> = (0..32)
@@ -34,8 +31,8 @@ fn seed_dict(conn: &Connection, id: u32) {
     let dict = zstd::dict::from_samples(&sample_refs, 1024).unwrap();
 
     conn.execute(
-        "INSERT OR REPLACE INTO _zstd_dicts (id, dict, trained_at) VALUES (?1, ?2, strftime('%s','now'))",
-        rusqlite::params![id, dict],
+        "INSERT OR REPLACE INTO __zstd_dicts (id, dict, trained_at) VALUES (?1, ?2, strftime('%s','now'))",
+        rusqlite::params![id.get(), dict],
     )
     .unwrap();
 }
@@ -46,7 +43,7 @@ fn get_encoder_not_ready_when_table_empty() {
     ensure_dicts_table(&conn);
     let mut wrapper = common::RusqliteConn::new(&conn);
 
-    match get_encoder(90_001, &mut wrapper, DEFAULT_LEVEL) {
+    match get_encoder(DictId::new(90_001), &mut wrapper, DEFAULT_LEVEL) {
         Err(DictError::NotReady) => {}
         Ok(_) => panic!("expected NotReady, got Ok"),
         Err(e) => panic!("expected NotReady, got Err({e})"),
@@ -59,7 +56,7 @@ fn get_decoder_not_ready_when_table_empty() {
     ensure_dicts_table(&conn);
     let mut wrapper = common::RusqliteConn::new(&conn);
 
-    match get_decoder(90_002, &mut wrapper) {
+    match get_decoder(DictId::new(90_002), &mut wrapper) {
         Err(DictError::NotReady) => {}
         Ok(_) => panic!("expected NotReady, got Ok"),
         Err(e) => panic!("expected NotReady, got Err({e})"),
@@ -69,7 +66,7 @@ fn get_decoder_not_ready_when_table_empty() {
 #[test]
 fn get_encoder_loads_and_caches() {
     let conn = Connection::open_in_memory().unwrap();
-    let id = 1_001;
+    let id = DictId::new(1_001);
     seed_dict(&conn, id);
     let mut wrapper = common::RusqliteConn::new(&conn);
 
@@ -77,13 +74,12 @@ fn get_encoder_loads_and_caches() {
     let second = expect_encoder(get_encoder(id, &mut wrapper, DEFAULT_LEVEL));
 
     assert!(Arc::ptr_eq(&first, &second));
-    assert_eq!(LATEST_DICT_ID.load(Ordering::Relaxed), id);
 }
 
 #[test]
 fn get_decoder_loads_and_caches() {
     let conn = Connection::open_in_memory().unwrap();
-    let id = 1_002;
+    let id = DictId::new(1_002);
     seed_dict(&conn, id);
     let mut wrapper = common::RusqliteConn::new(&conn);
 
@@ -96,7 +92,7 @@ fn get_decoder_loads_and_caches() {
 #[test]
 fn get_encoder_and_decoder_roundtrip() {
     let conn = Connection::open_in_memory().unwrap();
-    let id = 1_003;
+    let id = DictId::new(1_003);
     seed_dict(&conn, id);
     let mut wrapper = common::RusqliteConn::new(&conn);
 
@@ -118,12 +114,12 @@ fn get_encoder_and_decoder_roundtrip() {
 #[test]
 fn query_blobs_returns_seeded_dict() {
     let conn = Connection::open_in_memory().unwrap();
-    let id = 1_004;
+    let id = DictId::new(1_004);
     seed_dict(&conn, id);
     let mut wrapper = common::RusqliteConn::new(&conn);
 
     let rows = wrapper
-        .query_blobs(&format!("SELECT dict FROM _zstd_dicts WHERE id = {id}"))
+        .query_blobs(&format!("SELECT dict FROM __zstd_dicts WHERE id = {id}"))
         .unwrap();
     assert_eq!(rows.len(), 1);
     assert!(!rows[0].is_empty());

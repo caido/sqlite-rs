@@ -1,5 +1,8 @@
 use rusqlite::Connection;
-use sqlite_compress::{setup, SetupConfig, SetupError, SetupTable};
+use sqlite_compress::{
+    setup, ColumnName, SchemaName, SetupConfig, SetupError, SetupTable, TableName, DEFAULT_LEVEL,
+    DEFAULT_RETRAIN_GROWTH,
+};
 mod common;
 
 #[test]
@@ -16,11 +19,12 @@ fn setup_skips_existing_view() {
 
     let config = SetupConfig {
         tables: vec![SetupTable {
-            name: "requests_raw".to_string(),
-            schema: "raw".to_string(),
-            columns: vec!["data".to_string()],
+            name: TableName::new("requests_raw"),
+            schema: SchemaName::new("raw"),
+            columns: vec![ColumnName::new("data")],
         }],
-        compression_level: sqlite_compress::DEFAULT_LEVEL,
+        retrain_growth: DEFAULT_RETRAIN_GROWTH,
+        compression_level: DEFAULT_LEVEL,
     };
 
     let mut wrapper = common::RusqliteConn::new(&conn);
@@ -40,17 +44,18 @@ fn setup_creates_view() {
 
     let config = SetupConfig {
         tables: vec![SetupTable {
-            name: "requests_raw".to_string(),
-            schema: "raw".to_string(),
-            columns: vec!["data".to_string()],
+            name: TableName::new("requests_raw"),
+            schema: SchemaName::new("raw"),
+            columns: vec![ColumnName::new("data")],
         }],
-        compression_level: sqlite_compress::DEFAULT_LEVEL,
+        compression_level: DEFAULT_LEVEL,
+        retrain_growth: DEFAULT_RETRAIN_GROWTH,
     };
 
     let mut wrapper = common::RusqliteConn::new(&conn);
     setup(&mut wrapper, &config).unwrap();
 
-    let view_name = "requests_raw_zstd_decoded";
+    let view_name = "requests_raw__zstd_decoded";
     let count: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM raw.sqlite_master WHERE type = 'view' AND name = ?1",
@@ -75,11 +80,12 @@ fn setup_rejects_missing_column() {
 
     let config = SetupConfig {
         tables: vec![SetupTable {
-            name: "requests_raw".to_string(),
-            schema: "raw".to_string(),
-            columns: vec!["unvalid_column".to_string()],
+            name: TableName::new("requests_raw"),
+            schema: SchemaName::new("raw"),
+            columns: vec![ColumnName::new("unvalid_column")],
         }],
-        compression_level: sqlite_compress::DEFAULT_LEVEL,
+        compression_level: DEFAULT_LEVEL,
+        retrain_growth: DEFAULT_RETRAIN_GROWTH,
     };
 
     let mut wrapper = common::RusqliteConn::new(&conn);
@@ -104,11 +110,12 @@ fn setup_rejects_missing_table() {
 
     let config = SetupConfig {
         tables: vec![SetupTable {
-            name: "missing_table".to_string(),
-            schema: "raw".to_string(),
+            name: TableName::new("missing_table"),
+            schema: SchemaName::new("raw"),
             columns: vec![],
         }],
-        compression_level: sqlite_compress::DEFAULT_LEVEL,
+        compression_level: DEFAULT_LEVEL,
+        retrain_growth: DEFAULT_RETRAIN_GROWTH,
     };
 
     let mut wrapper = common::RusqliteConn::new(&conn);

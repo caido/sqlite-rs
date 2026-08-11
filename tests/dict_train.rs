@@ -1,5 +1,8 @@
 use rusqlite::{params, Connection};
-use sqlite_compress::{setup, train, SetupConfig, SetupTable, DEFAULT_LEVEL};
+use sqlite_compress::{
+    setup, train, ColumnName, SchemaName, SetupConfig, SetupTable, TableName, DEFAULT_LEVEL,
+    DEFAULT_RETRAIN_GROWTH,
+};
 
 mod common;
 
@@ -25,11 +28,12 @@ fn train_persists_a_new_dictionary() {
 
     let config = SetupConfig {
         tables: vec![SetupTable {
-            name: "requests_raw".to_string(),
-            schema: "raw".to_string(),
-            columns: vec!["data".to_string()],
+            name: TableName::new("requests_raw"),
+            schema: SchemaName::new("raw"),
+            columns: vec![ColumnName::new("data")],
         }],
         compression_level: DEFAULT_LEVEL,
+        retrain_growth: DEFAULT_RETRAIN_GROWTH,
     };
     let mut wrapper = common::RusqliteConn::new(&conn);
     setup(&mut wrapper, &config).unwrap();
@@ -37,24 +41,25 @@ fn train_persists_a_new_dictionary() {
     let dict_id = train(&mut wrapper, &config, 1024, 10, 1).unwrap();
 
     let (stored_id, dict_size): (u32, usize) = conn
-        .query_row("SELECT id, length(dict) FROM raw._zstd_dicts", [], |row| {
+        .query_row("SELECT id, length(dict) FROM raw.__zstd_dicts", [], |row| {
             Ok((row.get(0)?, row.get(1)?))
         })
         .unwrap();
 
-    assert_eq!(dict_id, 1);
-    assert_eq!(stored_id, dict_id);
+    assert_eq!(dict_id.get(), 1);
+    assert_eq!(stored_id, dict_id.get());
     assert!(dict_size > 0);
 }
 
 fn sample_config() -> SetupConfig {
     SetupConfig {
         tables: vec![SetupTable {
-            name: "requests_raw".to_string(),
-            schema: "raw".to_string(),
-            columns: vec!["data".to_string()],
+            name: TableName::new("requests_raw"),
+            schema: SchemaName::new("raw"),
+            columns: vec![ColumnName::new("data")],
         }],
         compression_level: DEFAULT_LEVEL,
+        retrain_growth: DEFAULT_RETRAIN_GROWTH,
     }
 }
 fn setup_raw_table(conn: &Connection) {
@@ -90,11 +95,12 @@ fn train_rejects_empty_samples() {
 
     let config = SetupConfig {
         tables: vec![SetupTable {
-            name: "requests_raw".to_string(),
-            schema: "raw".to_string(),
-            columns: vec!["data".to_string()],
+            name: TableName::new("requests_raw"),
+            schema: SchemaName::new("raw"),
+            columns: vec![ColumnName::new("data")],
         }],
         compression_level: DEFAULT_LEVEL,
+        retrain_growth: DEFAULT_RETRAIN_GROWTH,
     };
     let mut wrapper = common::RusqliteConn::new(&conn);
     setup(&mut wrapper, &config).unwrap();
@@ -114,12 +120,12 @@ fn train_stores_row_count() {
     let dict_id = train(&mut wrapper, &config, 1024, 10, 1).unwrap();
     let (stored_id, row_count): (u32, i64) = conn
         .query_row(
-            "SELECT id, row_count FROM raw._zstd_dicts WHERE id = ?1",
-            [dict_id],
+            "SELECT id, row_count FROM raw.__zstd_dicts WHERE id = ?1",
+            [dict_id.get()],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .unwrap();
-    assert_eq!(stored_id, dict_id);
+    assert_eq!(stored_id, dict_id.get());
     assert_eq!(row_count, 64);
 }
 
@@ -132,7 +138,7 @@ fn train_skips_when_growth_below_threshold() {
     let mut wrapper = common::RusqliteConn::new(&conn);
     setup(&mut wrapper, &config).unwrap();
     let first = train(&mut wrapper, &config, 1024, 10, 1).unwrap();
-    assert_eq!(first, 1);
+    assert_eq!(first.get(), 1);
     // +100 samples << RETRAIN_GROWTH (5000)
     insert_samples(&conn, 100);
     let err = train(&mut wrapper, &config, 1024, 10, 1).unwrap_err();
@@ -141,7 +147,9 @@ fn train_skips_when_growth_below_threshold() {
         "unexpected error: {err}"
     );
     let count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM raw._zstd_dicts", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM raw.__zstd_dicts", [], |row| {
+            row.get(0)
+        })
         .unwrap();
     assert_eq!(count, 1);
 }
@@ -159,17 +167,17 @@ fn train_retrains_when_growth_reaches_threshold() {
     setup(&mut wrapper, &config).unwrap();
     // Simulate a previous train with low row_count
     conn.execute(
-        "INSERT INTO raw._zstd_dicts (id, dict, trained_at, row_count)
+        "INSERT INTO raw.__zstd_dicts (id, dict, trained_at, row_count)
          VALUES (1, X'00', strftime('%s','now'), ?1)",
         [prior_row_count],
     )
     .unwrap();
     let dict_id = train(&mut wrapper, &config, 1024, 10, 1).unwrap();
-    assert_eq!(dict_id, 2);
+    assert_eq!(dict_id.get(), 2);
     let row_count: i64 = conn
         .query_row(
-            "SELECT row_count FROM raw._zstd_dicts WHERE id = ?1",
-            [dict_id],
+            "SELECT row_count FROM raw.__zstd_dicts WHERE id = ?1",
+            [dict_id.get()],
             |row| row.get(0),
         )
         .unwrap();

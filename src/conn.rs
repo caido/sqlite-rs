@@ -1,10 +1,14 @@
-use crate::setup::DictStore;
-use sqlite_loadable::ext::{
-    sqlite3ext_column_value, sqlite3ext_finalize, sqlite3ext_prepare_v2, sqlite3ext_step,
-    sqlite3ext_value_blob, sqlite3ext_value_bytes,
-};
-use sqlite_loadable::prelude::*;
 use std::ffi::CString;
+
+use sqlite_loadable::{
+    ext::{
+        sqlite3ext_column_value, sqlite3ext_finalize, sqlite3ext_prepare_v2, sqlite3ext_step,
+        sqlite3ext_value_blob, sqlite3ext_value_bytes,
+    },
+    prelude::*,
+};
+
+use crate::setup::DictStore;
 
 const SQLITE_OK: i32 = 0;
 const SQLITE_ROW: i32 = 100;

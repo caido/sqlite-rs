@@ -1,15 +1,15 @@
 use rusqlite::Connection;
-use sqlite_compress::{get_decoder, get_encoder, DEFAULT_LEVEL};
+use sqlite_compress::{get_decoder, get_encoder, DictId, DEFAULT_LEVEL};
 use zstd::bulk::{Compressor, Decompressor};
 
 mod common;
 
 use crate::common::{expect_decoder, expect_encoder};
 
-fn insert_trained_dict(conn: &Connection, id: u32) -> Vec<u8> {
+fn insert_trained_dict(conn: &Connection, id: DictId) -> Vec<u8> {
     conn.execute_batch(
         r#"
-        CREATE TABLE IF NOT EXISTS _zstd_dicts (
+        CREATE TABLE IF NOT EXISTS __zstd_dicts (
             id INTEGER PRIMARY KEY,
             dict BLOB NOT NULL,
             trained_at INTEGER NOT NULL
@@ -25,8 +25,8 @@ fn insert_trained_dict(conn: &Connection, id: u32) -> Vec<u8> {
     let dict = zstd::dict::from_samples(&sample_refs, 1024).unwrap();
 
     conn.execute(
-        "INSERT OR REPLACE INTO _zstd_dicts (id, dict, trained_at) VALUES (?1, ?2, strftime('%s','now'))",
-        rusqlite::params![id, dict],
+        "INSERT OR REPLACE INTO __zstd_dicts (id, dict, trained_at) VALUES (?1, ?2, strftime('%s','now'))",
+        rusqlite::params![id.get(), dict],
     )
     .unwrap();
 
@@ -36,7 +36,7 @@ fn insert_trained_dict(conn: &Connection, id: u32) -> Vec<u8> {
 #[test]
 fn insert_dict_encode_decode_equals_input() {
     let conn = Connection::open_in_memory().unwrap();
-    let id = 2_001;
+    let id = DictId::new(2_001);
     let _dict_bytes = insert_trained_dict(&conn, id);
 
     let mut wrapper = common::RusqliteConn::new(&conn);
@@ -60,7 +60,7 @@ fn insert_dict_encode_decode_equals_input() {
 #[test]
 fn roundtrip_multiple_payloads_with_same_dict() {
     let conn = Connection::open_in_memory().unwrap();
-    let id = 2_002;
+    let id = DictId::new(2_002);
     insert_trained_dict(&conn, id);
 
     let mut wrapper = common::RusqliteConn::new(&conn);

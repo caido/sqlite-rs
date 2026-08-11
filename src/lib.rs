@@ -4,13 +4,15 @@ mod functions;
 mod setup;
 mod utils;
 
-pub use dict::errors::DictError;
-pub use dict::{get_decoder, get_encoder, train, LATEST_DICT_ID};
-pub use functions::{compress, decompress, DEFAULT_LEVEL};
-pub use setup::{setup, DictStore, SetupConfig, SetupConnection, SetupError, SetupTable};
+pub const DEFAULT_RETRAIN_GROWTH: usize = 5000;
 
-use sqlite_loadable::prelude::*;
-use sqlite_loadable::{define_scalar_function, Result};
+pub use dict::{errors::DictError, get_decoder, get_encoder, train, DictId, LATEST_DICT_ID};
+pub use functions::{compress, decompress, Header, DEFAULT_LEVEL};
+pub use setup::{
+    setup, ColumnName, DictStore, SchemaName, SetupConfig, SetupConnection, SetupError, SetupTable,
+    TableName,
+};
+use sqlite_loadable::{define_scalar_function, prelude::*, Result};
 
 #[sqlite_entrypoint]
 pub fn sqlite3_compress_init(db: *mut sqlite3) -> Result<()> {
