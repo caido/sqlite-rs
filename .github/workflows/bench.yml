@@ -1,0 +1,45 @@
+name: Bench
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+concurrency:
+  group: bench-${{ github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  MISE_ENV: ci
+
+jobs:
+  bench:
+    name: Criterion
+    runs-on: warp-ubuntu-latest-x64-2x
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+
+      - name: Install Mise
+        uses: caido/action-mise-action@5ac50f778e26fac95da98d50503682459e86d566 # v3.2.0
+        with:
+          version: ${{ vars.CI__MISE_VERSION }}
+          install: true
+          cache: false
+          log_level: debug
+          install_args: --env ${{ env.MISE_ENV }}
+
+      - name: Run benchmarks
+        run: cargo bench --benches
+
+      - name: Upload Criterion HTML report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: criterion-report-${{ github.sha }}
+          path: target/criterion
+          retention-days: 90
