@@ -1,7 +1,9 @@
+use std::{
+    collections::{hash_map::Entry, HashMap, VecDeque},
+    sync::Arc,
+};
+
 use crate::dict::types::DictId;
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
 
 const MAX_CACHED_DICTS: usize = 5;
 

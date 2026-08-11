@@ -1,11 +1,17 @@
-use crate::dict::errors::DictError;
-use crate::dict::lru::DictLru;
-use crate::setup::{DictStore, SetupConnection};
-use crate::utils::quote_identifier;
+use std::sync::{
+    atomic::{AtomicU32, Ordering},
+    Arc, OnceLock,
+};
+
 use parking_lot::Mutex;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, OnceLock};
 use zstd::dict::{DecoderDictionary, EncoderDictionary};
+
+use crate::{
+    dict::{errors::DictError, lru::DictLru},
+    functions::Level,
+    setup::{DictStore, SetupConnection},
+    utils::quote_identifier,
+};
 
 pub mod errors;
 mod lru;
@@ -41,12 +47,10 @@ fn load_raw_dict<C: DictStore>(dict_id: DictId, conn: &mut C) -> Result<Vec<u8>,
     rows.into_iter().next().ok_or(DictError::NotFound(dict_id))
 }
 
-#[expect(dead_code)]
 pub fn get_encoder_cached(dict_id: DictId) -> Option<Arc<EncoderDictionary<'static>>> {
     ENCODER_CACHE.get()?.lock().peek(dict_id)
 }
 
-#[expect(dead_code)]
 pub fn get_decoder_cached(dict_id: DictId) -> Option<Arc<DecoderDictionary<'static>>> {
     DECODER_CACHE.get()?.lock().peek(dict_id)
 }
@@ -54,7 +58,7 @@ pub fn get_decoder_cached(dict_id: DictId) -> Option<Arc<DecoderDictionary<'stat
 pub fn get_encoder<C>(
     dict_id: DictId,
     conn: &mut C,
-    level: i32,
+    level: Level,
 ) -> Result<Arc<EncoderDictionary<'static>>, DictError>
 where
     C: DictStore,
@@ -66,7 +70,7 @@ where
     }
 
     let raw = load_raw_dict(dict_id, conn)?;
-    let encoder = Arc::new(EncoderDictionary::copy(&raw, level));
+    let encoder = Arc::new(EncoderDictionary::copy(&raw, level.get()));
 
     {
         let mut cache = cache.lock();
@@ -116,7 +120,7 @@ where
 /// The dictionary is inserted into the caches is mandatory to ensure the dictionary is ready to be used.
 /// By [get_decoder_cached](crate::dict::get_decoder_cached), [get_encoder_cached](crate::dict::get_encoder_cached),
 /// the dictionary is cached in memory.
-pub fn warm_cache<C>(conn: &mut C, level: i32) -> Result<(), DictError>
+pub fn warm_cache<C>(conn: &mut C, level: Level) -> Result<(), DictError>
 where
     C: SetupConnection,
 {
@@ -143,8 +147,8 @@ where
     Ok(())
 }
 
-pub fn insert_into_caches(dict_id: DictId, dictionary: &[u8], level: i32) {
-    let encoder = Arc::new(EncoderDictionary::copy(dictionary, level));
+pub fn insert_into_caches(dict_id: DictId, dictionary: &[u8], level: Level) {
+    let encoder = Arc::new(EncoderDictionary::copy(dictionary, level.get()));
     let decoder = Arc::new(DecoderDictionary::copy(dictionary));
 
     ENCODER_CACHE

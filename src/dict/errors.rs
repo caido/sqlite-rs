@@ -1,4 +1,5 @@
 use std::error::Error as StdError;
+
 use thiserror::Error;
 
 use crate::dict::types::DictId;
