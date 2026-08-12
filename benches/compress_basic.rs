@@ -22,7 +22,9 @@ fn bench_compress(c: &mut Criterion) {
             utils::report_size("zstd", &label, sample.len(), zstd.len());
 
             group.throughput(Throughput::Bytes(sample.len() as u64));
-            group.bench_function(BenchmarkId::new("zstd", &label), |b| {
+
+            // Raw compress using zstd with no dictionary
+            group.bench_function(BenchmarkId::new("compress_zstd", &label), |b| {
                 LATEST_DICT_ID.store(0, Ordering::Relaxed);
                 b.iter(|| {
                     let out =
@@ -40,7 +42,8 @@ fn bench_compress(c: &mut Criterion) {
             );
             utils::report_size("zstd_dict", &label, sample.len(), zstd_dict.len());
 
-            group.bench_function(BenchmarkId::new("zstd_dict", &label), |b| {
+            // Compress using zstd with dictionary
+            group.bench_function(BenchmarkId::new("compress_zstd_dict", &label), |b| {
                 LATEST_DICT_ID.store(dict_id.get(), Ordering::Relaxed);
                 b.iter(|| {
                     let out =

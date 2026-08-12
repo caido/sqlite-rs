@@ -1,4 +1,4 @@
-name: Bench
+name: Bench (main)
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
     branches: [main]
 
 concurrency:
-  group: bench-${{ github.ref_name }}
+  group: bench-main
   cancel-in-progress: true
 
 permissions:
@@ -34,7 +34,13 @@ jobs:
           install_args: --env ${{ env.MISE_ENV }}
 
       - name: Run benchmarks
-        run: cargo bench --benches
+        run: cargo bench --benches -- --save-baseline main
+
+      - name: Save Criterion baseline
+        uses: actions/cache/save@v4
+        with:
+          path: target/criterion
+          key: criterion-baseline-${{ github.sha }}
 
       - name: Upload Criterion HTML report
         uses: actions/upload-artifact@v4
@@ -42,4 +48,4 @@ jobs:
         with:
           name: criterion-report-${{ github.sha }}
           path: target/criterion
-          retention-days: 90
+          retention-days: 90q

@@ -1,0 +1,69 @@
+name: Bench (PR)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: bench-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  MISE_ENV: ci
+
+jobs:
+  bench:
+    name: Criterion vs main
+    runs-on: warp-ubuntu-latest-x64-2x
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+
+      - name: Install Mise
+        uses: caido/action-mise-action@5ac50f778e26fac95da98d50503682459e86d566 # v3.2.0
+        with:
+          version: ${{ vars.CI__MISE_VERSION }}
+          install: true
+          cache: false
+          log_level: debug
+          install_args: --env ${{ env.MISE_ENV }}
+
+      - name: Restore main baseline
+        id: baseline
+        uses: actions/cache/restore@v4
+        with:
+          path: target/criterion
+          key: criterion-baseline-${{ github.event.pull_request.base.sha }}
+          restore-keys: |
+            criterion-baseline-
+
+      - name: Run benchmarks vs main
+        if: steps.baseline.outputs.cache-hit == 'true' || steps.baseline.outputs.cache-matched-key != ''
+        run: cargo bench --benches -- --baseline main 2>&1 | tee bench-compare.txt
+
+      - name: Run benchmarks (no baseline)
+        if: steps.baseline.outputs.cache-hit != 'true' && steps.baseline.outputs.cache-matched-key == ''
+        run: |
+          echo "No main baseline found yet; running benches without comparison." | tee bench-compare.txt
+          cargo bench --benches 2>&1 | tee -a bench-compare.txt
+
+
+      - name: Comment comparison on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comment = require('${{ github.workspace }}/.github/scripts/comment-bench-compare.js')
+            await comment({ github, context })
+
+      - name: Upload Criterion HTML report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: criterion-report-pr-${{ github.event.pull_request.number }}-${{ github.sha }}
+          path: target/criterion
+          retention-days: 30
