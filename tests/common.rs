@@ -5,6 +5,11 @@ use sqlite_compress::{DictError, DictStore, SetupConnection};
 use zstd::dict::{DecoderDictionary, EncoderDictionary};
 
 #[allow(dead_code)]
+pub const DEFAULT_MIN_SAMPLES: usize = 1000;
+#[allow(dead_code)]
+pub const DEFAULT_MAX_SAMPLES: usize = 10000;
+
+#[allow(dead_code)]
 pub fn expect_encoder(
     result: Result<Arc<EncoderDictionary<'static>>, DictError>,
 ) -> Arc<EncoderDictionary<'static>> {

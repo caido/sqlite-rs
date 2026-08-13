@@ -79,8 +79,8 @@ where
     let dict_id = persist_dictionary(
         conn,
         &dict_table,
-        &table.name.as_str(),
-        &column.name.as_str(),
+        table.name.as_str(),
+        column.name.as_str(),
         &dictionary,
         available,
     )?;
@@ -243,7 +243,7 @@ where
         .execute_blob(&sql, dictionary)
         .map_err(SetupError::from_conn)?;
 
-    return u32::try_from(id)
+    u32::try_from(id)
         .map(DictId::new)
-        .map_err(|_| SetupError::DictTrain("dictionary id overflow".to_string()));
+        .map_err(|_| SetupError::DictTrain("dictionary id overflow".to_string()))
 }

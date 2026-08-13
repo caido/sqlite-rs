@@ -1,4 +1,4 @@
-use std::{format, println};
+use std::format;
 
 use crate::{
     setup::{
@@ -62,7 +62,7 @@ where
     Ok(true)
 }
 
-/// A view is created for each column that targets the table in [`SetupConfig`].
+///    A view is created for each column that targets the table in [`SetupConfig`].
 fn ensure_view_exist<C>(
     conn: &mut C,
     schema_qualified_name: &str,
@@ -73,9 +73,7 @@ where
     C: SetupConnection,
 {
     let column_view_name = column.view_name(&table.name);
-    let qualified = table.column_as_qualified_view_name(&column);
-
-    println!("qualified: {qualified}");
+    let qualified = table.column_as_qualified_view_name(column);
 
     let count = conn
         .query_i64(&format!(
@@ -101,7 +99,7 @@ where
 /// 1. Ensure the table exists in the database.
 /// 2. Ensure the columns exist in the database.
 /// 3. Ensure the views exist in the database.
-/// A view is created for each column that targets the table in [`SetupConfig`].
+///    A view is created for each column that targets the table in [`SetupConfig`].
 pub fn init_view<C>(conn: &mut C, config: &SetupConfig) -> Result<(), SetupError>
 where
     C: SetupConnection,
@@ -112,7 +110,7 @@ where
 
         for column in &table.columns {
             ensure_column_exist(conn, &table.name, &table.schema, &column.name)?;
-            ensure_view_exist(conn, &schema, &table, &column.name)?;
+            ensure_view_exist(conn, &schema, table, &column.name)?;
         }
     }
 

@@ -1,9 +1,10 @@
+use std::collections::HashSet;
+
 use super::{SetupConfig, SetupConnection, SetupError};
 use crate::{
     dict::{warm_cache, DICT_TABLE_NAME},
     setup::SqlIdent,
 };
-use std::collections::HashSet;
 
 /// For each schema in the [`SetupConfig`] checks if the dictionary table exists.
 /// If not, create it.
@@ -15,17 +16,6 @@ where
 
     for schema in schemas {
         let schema = schema.quote();
-
-        let count = conn
-            .query_i64(&format!(
-                "SELECT COUNT(*) FROM {schema}.sqlite_master \
-         WHERE type = 'table' AND name = '{DICT_TABLE_NAME}'"
-            ))
-            .map_err(SetupError::from_conn)?;
-
-        if count == 1 {
-            continue;
-        }
 
         conn.batch_execute(&format!(
             "

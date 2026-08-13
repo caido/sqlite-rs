@@ -82,7 +82,7 @@ impl ColumnName {
     }
 
     pub fn view_name(&self, table_name: &TableName) -> String {
-        format!("{}_{}{}", table_name.as_str(), self.as_str(), VIEW_SUFFIX)
+        format!("{}_{}_{}", VIEW_SUFFIX, table_name.as_str(), self.as_str())
     }
 }
 

@@ -1,4 +1,4 @@
-/* use std::sync::Arc;
+use std::sync::Arc;
 
 use rusqlite::Connection;
 use sqlite_compress::{get_decoder, get_encoder, DictError, DictId, DictStore, DEFAULT_LEVEL};
@@ -14,14 +14,16 @@ fn ensure_dicts_table(conn: &Connection) {
         CREATE TABLE IF NOT EXISTS __zstd_dicts (
             id INTEGER PRIMARY KEY,
             dict BLOB NOT NULL,
-            trained_at INTEGER NOT NULL
+            trained_at INTEGER NOT NULL,
+            table_name TEXT NOT NULL,
+            column_name TEXT NOT NULL
         );
         "#,
     )
     .unwrap();
 }
 
-fn seed_dict(conn: &Connection, id: DictId) {
+fn seed_dict(conn: &Connection, id: DictId, table_name: &str, column_name: &str) {
     ensure_dicts_table(conn);
 
     let samples: Vec<Vec<u8>> = (0..32)
@@ -31,8 +33,8 @@ fn seed_dict(conn: &Connection, id: DictId) {
     let dict = zstd::dict::from_samples(&sample_refs, 1024).unwrap();
 
     conn.execute(
-        "INSERT OR REPLACE INTO __zstd_dicts (id, dict, trained_at) VALUES (?1, ?2, strftime('%s','now'))",
-        rusqlite::params![id.get(), dict],
+        "INSERT OR REPLACE INTO __zstd_dicts (id, dict, trained_at, table_name, column_name) VALUES (?1, ?2, strftime('%s','now'), ?3, ?4)",
+        rusqlite::params![id.get(), dict, table_name, column_name],
     )
     .unwrap();
 }
@@ -67,7 +69,7 @@ fn get_decoder_not_ready_when_table_empty() {
 fn get_encoder_loads_and_caches() {
     let conn = Connection::open_in_memory().unwrap();
     let id = DictId::new(1_001);
-    seed_dict(&conn, id);
+    seed_dict(&conn, id, "requests_raw", "data");
     let mut wrapper = common::RusqliteConn::new(&conn);
 
     let first = expect_encoder(get_encoder(id, &mut wrapper, DEFAULT_LEVEL));
@@ -80,7 +82,7 @@ fn get_encoder_loads_and_caches() {
 fn get_decoder_loads_and_caches() {
     let conn = Connection::open_in_memory().unwrap();
     let id = DictId::new(1_002);
-    seed_dict(&conn, id);
+    seed_dict(&conn, id, "requests_raw", "data");
     let mut wrapper = common::RusqliteConn::new(&conn);
 
     let first = expect_decoder(get_decoder(id, &mut wrapper));
@@ -93,7 +95,7 @@ fn get_decoder_loads_and_caches() {
 fn get_encoder_and_decoder_roundtrip() {
     let conn = Connection::open_in_memory().unwrap();
     let id = DictId::new(1_003);
-    seed_dict(&conn, id);
+    seed_dict(&conn, id, "requests_raw", "data");
     let mut wrapper = common::RusqliteConn::new(&conn);
 
     let encoder = expect_encoder(get_encoder(id, &mut wrapper, DEFAULT_LEVEL));
@@ -115,7 +117,7 @@ fn get_encoder_and_decoder_roundtrip() {
 fn query_blobs_returns_seeded_dict() {
     let conn = Connection::open_in_memory().unwrap();
     let id = DictId::new(1_004);
-    seed_dict(&conn, id);
+    seed_dict(&conn, id, "requests_raw", "data");
     let mut wrapper = common::RusqliteConn::new(&conn);
 
     let rows = wrapper
@@ -124,4 +126,3 @@ fn query_blobs_returns_seeded_dict() {
     assert_eq!(rows.len(), 1);
     assert!(!rows[0].is_empty());
 }
- */

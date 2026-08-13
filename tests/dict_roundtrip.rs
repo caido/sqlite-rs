@@ -1,4 +1,4 @@
-/* use rusqlite::Connection;
+use rusqlite::Connection;
 use sqlite_compress::{get_decoder, get_encoder, DictId, DEFAULT_LEVEL};
 use zstd::bulk::{Compressor, Decompressor};
 
@@ -6,13 +6,20 @@ mod common;
 
 use crate::common::{expect_decoder, expect_encoder};
 
-fn insert_trained_dict(conn: &Connection, id: DictId) -> Vec<u8> {
+fn insert_trained_dict(
+    conn: &Connection,
+    id: DictId,
+    table_name: &str,
+    column_name: &str,
+) -> Vec<u8> {
     conn.execute_batch(
         r#"
         CREATE TABLE IF NOT EXISTS __zstd_dicts (
             id INTEGER PRIMARY KEY,
             dict BLOB NOT NULL,
-            trained_at INTEGER NOT NULL
+            trained_at INTEGER NOT NULL,
+            table_name TEXT NOT NULL,
+            column_name TEXT NOT NULL
         );
         "#,
     )
@@ -25,8 +32,8 @@ fn insert_trained_dict(conn: &Connection, id: DictId) -> Vec<u8> {
     let dict = zstd::dict::from_samples(&sample_refs, 1024).unwrap();
 
     conn.execute(
-        "INSERT OR REPLACE INTO __zstd_dicts (id, dict, trained_at) VALUES (?1, ?2, strftime('%s','now'))",
-        rusqlite::params![id.get(), dict],
+        "INSERT OR REPLACE INTO __zstd_dicts (id, dict, trained_at, table_name, column_name) VALUES (?1, ?2, strftime('%s','now'), ?3, ?4)",
+        rusqlite::params![id.get(), dict, table_name, column_name],
     )
     .unwrap();
 
@@ -37,7 +44,7 @@ fn insert_trained_dict(conn: &Connection, id: DictId) -> Vec<u8> {
 fn insert_dict_encode_decode_equals_input() {
     let conn = Connection::open_in_memory().unwrap();
     let id = DictId::new(2_001);
-    let _dict_bytes = insert_trained_dict(&conn, id);
+    let _dict_bytes = insert_trained_dict(&conn, id, "requests_raw", "data");
 
     let mut wrapper = common::RusqliteConn::new(&conn);
     let encoder = expect_encoder(get_encoder(id, &mut wrapper, DEFAULT_LEVEL));
@@ -61,7 +68,7 @@ fn insert_dict_encode_decode_equals_input() {
 fn roundtrip_multiple_payloads_with_same_dict() {
     let conn = Connection::open_in_memory().unwrap();
     let id = DictId::new(2_002);
-    insert_trained_dict(&conn, id);
+    insert_trained_dict(&conn, id, "requests_raw", "data");
 
     let mut wrapper = common::RusqliteConn::new(&conn);
     let encoder = expect_encoder(get_encoder(id, &mut wrapper, DEFAULT_LEVEL));
@@ -85,4 +92,3 @@ fn roundtrip_multiple_payloads_with_same_dict() {
         assert_eq!(decompressed, original);
     }
 }
- */

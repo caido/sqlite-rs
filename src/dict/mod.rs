@@ -18,8 +18,7 @@ mod train;
 mod types;
 
 pub use train::{train_all, train_by_column};
-pub use types::ColumnKey;
-pub use types::DictId;
+pub use types::{ColumnKey, DictId};
 
 pub static DICT_TABLE_NAME: &str = "__zstd_dicts";
 

@@ -7,7 +7,7 @@ mod utils;
 pub const DEFAULT_RETRAIN_GROWTH: usize = 5000;
 
 pub use dict::{
-    errors::DictError, get_decoder, get_encoder, train_all, train_by_column, DictId,
+    errors::DictError, get_decoder, get_encoder, train_all, train_by_column, ColumnKey, DictId,
     CURRENT_DICT_IDS,
 };
 pub use functions::{compress, decompress, Header, DEFAULT_LEVEL};
