@@ -4,8 +4,8 @@ mod errors;
 mod views;
 
 pub use config::{
-    ColumnName, DictStore, SchemaName, SetupConfig, SetupConnection, SetupTable, SqlIdent,
-    TableName,
+    ColumnName, DictStore, SchemaName, SetupColumn, SetupConfig, SetupConnection, SetupTable,
+    SqlIdent, TableName,
 };
 use dict::init_dict;
 pub use errors::SetupError;

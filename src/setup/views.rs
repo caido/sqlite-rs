@@ -1,3 +1,5 @@
+use std::{format, println};
+
 use crate::{
     setup::{
         config::{ColumnName, SchemaName, TableName},
@@ -73,6 +75,8 @@ where
     let column_view_name = column.view_name(&table.name);
     let qualified = table.column_as_qualified_view_name(&column);
 
+    println!("qualified: {qualified}");
+
     let count = conn
         .query_i64(&format!(
             "SELECT COUNT(*) FROM {schema_qualified_name}.sqlite_master \
@@ -107,8 +111,8 @@ where
         let schema = table.as_qualified_schema_name();
 
         for column in &table.columns {
-            ensure_column_exist(conn, &table.name, &table.schema, &column)?;
-            ensure_view_exist(conn, &schema, &table, &column)?;
+            ensure_column_exist(conn, &table.name, &table.schema, &column.name)?;
+            ensure_view_exist(conn, &schema, &table, &column.name)?;
         }
     }
 

@@ -1,19 +1,20 @@
 use super::{SetupConfig, SetupConnection, SetupError};
-use crate::dict::{warm_cache, DICT_TABLE_NAME};
+use crate::{
+    dict::{warm_cache, DICT_TABLE_NAME},
+    setup::SqlIdent,
+};
+use std::collections::HashSet;
 
-/// For each tables in schema, check if the dictionary store exists in the database.
+/// For each schema in the [`SetupConfig`] checks if the dictionary table exists.
+/// If not, create it.
 fn ensure_table_exists<C>(conn: &mut C, config: &SetupConfig) -> Result<(), SetupError>
 where
     C: SetupConnection,
 {
-    let mut schemas_done = std::collections::HashSet::new();
+    let schemas: HashSet<_> = config.tables.iter().map(|table| &table.schema).collect();
 
-    for table in &config.tables {
-        if !schemas_done.insert(&table.schema) {
-            continue;
-        }
-
-        let schema = table.as_qualified_schema_name();
+    for schema in schemas {
+        let schema = schema.quote();
 
         let count = conn
             .query_i64(&format!(
@@ -32,6 +33,8 @@ where
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             dict BLOB NOT NULL,
             trained_at INTEGER NOT NULL,
+            table_name TEXT NOT NULL,
+            column_name TEXT NOT NULL,
             row_count INTEGER NOT NULL
         );
     "
@@ -51,6 +54,21 @@ where
     C: SetupConnection,
 {
     ensure_table_exists(conn, config)?;
-    warm_cache(conn, config.compression_level).map_err(|e| SetupError::DictTrain(e.to_string()))?;
+
+    for table in &config.tables {
+        let dict_table = table.schema.as_zstd_schema_name();
+        for column in &table.columns {
+            warm_cache(
+                conn,
+                &dict_table,
+                table.schema.as_str(),
+                table.name.as_str(),
+                column.name.as_str(),
+                config.compression_level,
+            )
+            .map_err(|e| SetupError::DictTrain(e.to_string()))?;
+        }
+    }
+
     Ok(())
 }

@@ -1,6 +1,6 @@
-use std::sync::{
-    atomic::{AtomicU32, Ordering},
-    Arc, OnceLock,
+use std::{
+    collections::HashMap,
+    sync::{Arc, LazyLock, OnceLock},
 };
 
 use parking_lot::Mutex;
@@ -10,7 +10,6 @@ use crate::{
     dict::{errors::DictError, lru::DictLru},
     functions::Level,
     setup::{DictStore, SetupConnection},
-    utils::quote_identifier,
 };
 
 pub mod errors;
@@ -18,7 +17,8 @@ mod lru;
 mod train;
 mod types;
 
-pub use train::train;
+pub use train::{train_all, train_by_column};
+pub use types::ColumnKey;
 pub use types::DictId;
 
 pub static DICT_TABLE_NAME: &str = "__zstd_dicts";
@@ -29,7 +29,8 @@ type DecoderCache = Mutex<DictLru<DecoderDictionary<'static>>>;
 static ENCODER_CACHE: OnceLock<EncoderCache> = OnceLock::new();
 static DECODER_CACHE: OnceLock<DecoderCache> = OnceLock::new();
 
-pub static LATEST_DICT_ID: AtomicU32 = AtomicU32::new(0);
+pub static CURRENT_DICT_IDS: LazyLock<Mutex<HashMap<ColumnKey, DictId>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Load the raw dictionary from the database.
 fn load_raw_dict<C: DictStore>(dict_id: DictId, conn: &mut C) -> Result<Vec<u8>, DictError> {
@@ -80,7 +81,6 @@ where
         cache.insert(dict_id, encoder.clone());
     }
 
-    LATEST_DICT_ID.store(dict_id.get(), Ordering::Relaxed);
     Ok(encoder)
 }
 
@@ -108,7 +108,6 @@ where
         cache.insert(dict_id, decoder.clone());
     }
 
-    LATEST_DICT_ID.store(dict_id.get(), Ordering::Relaxed);
     Ok(decoder)
 }
 
@@ -120,18 +119,24 @@ where
 /// The dictionary is inserted into the caches is mandatory to ensure the dictionary is ready to be used.
 /// By [get_decoder_cached](crate::dict::get_decoder_cached), [get_encoder_cached](crate::dict::get_encoder_cached),
 /// the dictionary is cached in memory.
-pub fn warm_cache<C>(conn: &mut C, level: Level) -> Result<(), DictError>
+pub fn warm_cache<C>(
+    conn: &mut C,
+    dict_table: &str,
+    schema: &str,
+    table_name: &str,
+    column_name: &str,
+    level: Level,
+) -> Result<(), DictError>
 where
     C: SetupConnection,
 {
     ENCODER_CACHE.get_or_init(|| Mutex::new(DictLru::new()));
     DECODER_CACHE.get_or_init(|| Mutex::new(DictLru::new()));
 
-    let quoted_dict_table_name = quote_identifier(DICT_TABLE_NAME);
-
     let latest = conn
         .query_i64(&format!(
-            "SELECT COALESCE(MAX(id), 0) FROM {quoted_dict_table_name}"
+            "SELECT COALESCE(MAX(id), 0) FROM {dict_table} \
+             WHERE table_name = '{table_name}' AND column_name = '{column_name}'"
         ))
         .map_err(|e| DictError::Connection(e.into()))?;
 
@@ -142,8 +147,14 @@ where
     let dict_id = u32::try_from(latest)
         .map(DictId::new)
         .map_err(|_| DictError::NotFound(DictId::new(0)))?;
+
+    CURRENT_DICT_IDS
+        .lock()
+        .insert(ColumnKey::new(schema, table_name, column_name), dict_id);
+
     let _ = get_encoder(dict_id, conn, level)?;
     let _ = get_decoder(dict_id, conn)?;
+
     Ok(())
 }
 
@@ -160,6 +171,4 @@ pub fn insert_into_caches(dict_id: DictId, dictionary: &[u8], level: Level) {
         .get_or_init(|| Mutex::new(DictLru::new()))
         .lock()
         .insert(dict_id, decoder);
-
-    LATEST_DICT_ID.store(dict_id.get(), Ordering::Relaxed);
 }

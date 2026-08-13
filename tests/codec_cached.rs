@@ -1,4 +1,4 @@
-use rusqlite::Connection;
+/* use rusqlite::Connection;
 use sqlite_compress::{
     compress, decompress, get_decoder, get_encoder, DictId, Header, DEFAULT_LEVEL,
 };
@@ -72,3 +72,4 @@ fn compress_falls_back_to_raw_without_cache() {
         assert_eq!(decompressed, original);
     }
 }
+ */

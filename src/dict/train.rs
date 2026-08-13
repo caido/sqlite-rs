@@ -1,8 +1,11 @@
-use std::collections::HashSet;
-
 use crate::{
-    dict::{insert_into_caches, types::DictId},
-    setup::{SchemaName, SetupConfig, SetupConnection, SetupError, SqlIdent},
+    dict::{
+        insert_into_caches,
+        types::{ColumnKey, DictId},
+    },
+    functions::Level,
+    setup::{SetupConfig, SetupConnection, SetupError, SqlIdent},
+    SetupColumn, SetupTable, CURRENT_DICT_IDS,
 };
 
 /// Train the dictionary if the condition is met (enough samples and retrain growth).
@@ -11,33 +14,89 @@ use crate::{
 /// Finally, the dictionary is sync to the caches, sync to the cache is mandatory to ensure the dictionary is ready to be used.
 /// By [get_decoder_cached](crate::dict::get_decoder_cached), [get_encoder_cached](crate::dict::get_encoder_cached),
 /// the dictionary is cached in memory.
-pub fn train<C>(
+pub fn train_all<C>(
     conn: &mut C,
     config: &SetupConfig,
     dict_capacity: usize,
-    max_samples: usize,
-    min_samples: usize,
-) -> Result<DictId, SetupError>
+) -> Result<Vec<DictId>, SetupError>
 where
     C: SetupConnection,
 {
     validate_config(config, dict_capacity)?;
-    let available = ensure_enough_samples(conn, config, min_samples)?;
-    let schemas = unique_schemas(config);
 
-    let retrain_growth = config.retrain_growth.try_into().unwrap_or(5000);
+    let mut dict_ids = Vec::new();
 
-    if !retrain_required(conn, &schemas, available, retrain_growth)? {
-        return Err(SetupError::DictTrain(format!(
-            "retrain skipped: need at least {retrain_growth} new samples since last train"
-        )));
+    for (table, column) in config.iter_columns() {
+        match train_by_column(conn, table, column, config.compression_level, dict_capacity)? {
+            Some(dict_id) => dict_ids.push(dict_id),
+            None => continue,
+        }
     }
 
-    let dictionary = build_dictionary(conn, config, max_samples, dict_capacity)?;
+    Ok(dict_ids)
+}
 
-    let dict_id = persist_dictionary(conn, &schemas, &dictionary, available)?;
-    insert_into_caches(dict_id, &dictionary, config.compression_level);
-    Ok(dict_id)
+pub fn train_by_column<C>(
+    conn: &mut C,
+    table: &SetupTable,
+    column: &SetupColumn,
+    compression_level: Level,
+    dict_capacity: usize,
+) -> Result<Option<DictId>, SetupError>
+where
+    C: SetupConnection,
+{
+    let table_name = table.as_qualified_name();
+    let column_name = column.name.quote();
+    let dict_table = table.schema.as_zstd_schema_name();
+
+    let (enough, available) =
+        has_enough_samples(conn, &table_name, &column_name, column.min_samples)?;
+
+    if !enough {
+        return Ok(None);
+    }
+
+    if !has_retrain_required(
+        conn,
+        &dict_table,
+        table.name.as_str(),
+        column.name.as_str(),
+        available,
+        column.retrain_growth,
+    )? {
+        return Ok(None);
+    }
+
+    let dictionary = build_dictionary(
+        conn,
+        &table_name,
+        &column_name,
+        column.max_samples,
+        dict_capacity,
+    )?;
+
+    let dict_id = persist_dictionary(
+        conn,
+        &dict_table,
+        &table.name.as_str(),
+        &column.name.as_str(),
+        &dictionary,
+        available,
+    )?;
+
+    CURRENT_DICT_IDS.lock().insert(
+        ColumnKey::new(
+            table.schema.as_str(),
+            table.name.as_str(),
+            column.name.as_str(),
+        ),
+        dict_id,
+    );
+
+    insert_into_caches(dict_id, &dictionary, compression_level);
+
+    Ok(Some(dict_id))
 }
 
 /// Validate the config is valid.
@@ -64,95 +123,56 @@ fn validate_config(config: &SetupConfig, dict_capacity: usize) -> Result<(), Set
     Ok(())
 }
 
-/// Since dictionary is created by schema,
-/// we don't to train twice the same schema.
-fn unique_schemas(config: &SetupConfig) -> Vec<&SchemaName> {
-    let mut schemas = Vec::new();
-    let mut seen = HashSet::new();
-    for table in &config.tables {
-        if seen.insert(&table.schema) {
-            schemas.push(&table.schema);
-        }
-    }
-    schemas
-}
-
-fn ensure_enough_samples<C>(
+fn has_enough_samples<C>(
     conn: &mut C,
-    config: &SetupConfig,
+    table_name: &str,
+    column_name: &str,
     min_samples: usize,
-) -> Result<i64, SetupError>
+) -> Result<(bool, i64), SetupError>
 where
     C: SetupConnection,
 {
-    let available = count_available_samples(conn, config)?;
-    if available < min_samples as i64 {
-        return Err(SetupError::DictTrain(format!(
-            "not enough samples: have {available}, need at least {min_samples}"
-        )));
-    }
-    Ok(available)
-}
+    let count = conn
+        .query_i64(&format!(
+            "SELECT COUNT(*) FROM {table_name} \
+         WHERE {column_name} IS NOT NULL AND length({column_name}) > 0"
+        ))
+        .map_err(SetupError::from_conn)?;
 
-fn count_available_samples<C>(conn: &mut C, config: &SetupConfig) -> Result<i64, SetupError>
-where
-    C: SetupConnection,
-{
-    let mut parts = Vec::new();
-    for table in &config.tables {
-        let table_name = table.as_qualified_name();
-        for column in &table.columns {
-            let column_name = column.quote();
-            parts.push(format!(
-                "SELECT COUNT(*) AS c FROM {table_name} \
-                 WHERE {column_name} IS NOT NULL AND length({column_name}) > 0"
-            ));
-        }
-    }
-    conn.query_i64(&format!(
-        "SELECT COALESCE(SUM(c), 0) FROM ({})",
-        parts.join(" UNION ALL ")
-    ))
-    .map_err(SetupError::from_conn)
+    Ok((count >= min_samples as i64, count))
 }
 
 /// Check if the retrain is required.
 /// It is done by checking the last row count of the dictionary store.
 /// If the last row count is less than the retrain growth, the retrain is required.
-fn retrain_required<C>(
+/// Last stored row_count for this column vs current sample count.
+/// No prior dict → retrain. Otherwise need `last + retrain_growth` samples.
+fn has_retrain_required<C>(
     conn: &mut C,
-    schemas: &[&SchemaName],
+    dict_table: &str,
+    table_name: &str,
+    column_name: &str,
     available: i64,
-    retrain_growth: i64,
+    retrain_growth: usize,
 ) -> Result<bool, SetupError>
 where
     C: SetupConnection,
 {
-    let mut last_row_count: Option<i64> = None;
-    for schema in schemas {
-        let schema_name = schema.as_zstd_schema_name();
-        let exists = conn
-            .query_i64(&format!("SELECT COUNT(*) FROM {schema_name}"))
-            .map_err(SetupError::from_conn)?;
+    let last = conn
+        .query_i64(&format!(
+            "SELECT COALESCE(\
+                (SELECT row_count FROM {dict_table} \
+                 WHERE table_name = '{table_name}' AND column_name = '{column_name}' \
+                 ORDER BY id DESC LIMIT 1),\
+                -1)"
+        ))
+        .map_err(SetupError::from_conn)?;
 
-        if exists == 0 {
-            continue;
-        }
-
-        let row_count = conn
-            .query_i64(&format!(
-                "SELECT row_count FROM {schema_name} \
-                 ORDER BY id DESC LIMIT 1"
-            ))
-            .map_err(SetupError::from_conn)?;
-
-        last_row_count = Some(last_row_count.map_or(row_count, |n| n.max(row_count)));
+    if last < 0 {
+        return Ok(true);
     }
 
-    match last_row_count {
-        None => Ok(true),
-        Some(last) => Ok(available >= last + retrain_growth),
-    }
+    Ok(available >= last + retrain_growth as i64)
 }
 
 /// Build the dictionary from the samples.
@@ -160,7 +180,8 @@ where
 /// Using stream approach to avoid loading all the samples into memory.
 fn build_dictionary<C>(
     conn: &mut C,
-    config: &SetupConfig,
+    table_name: &str,
+    column_name: &str,
     max_samples: usize,
     dict_capacity: usize,
 ) -> Result<Vec<u8>, SetupError>
@@ -170,24 +191,19 @@ where
     let mut corpus = Vec::new();
     let mut sizes = Vec::new();
 
-    for table in &config.tables {
-        let table_name = table.as_qualified_name();
-        for column in &table.columns {
-            let column_name = column.quote();
-            let sql = format!(
-                "SELECT {column_name} FROM {table_name} \
+    let sql = format!(
+        "SELECT {column_name} FROM {table_name} \
                  WHERE {column_name} IS NOT NULL AND length({column_name}) > 0 \
                  ORDER BY rowid DESC \
                  LIMIT {max_samples}"
-            );
-            conn.for_each_blob(&sql, |blob| {
-                corpus.extend_from_slice(blob);
-                sizes.push(blob.len());
-                Ok(())
-            })
-            .map_err(SetupError::from_conn)?;
-        }
-    }
+    );
+
+    conn.for_each_blob(&sql, |blob| {
+        corpus.extend_from_slice(blob);
+        sizes.push(blob.len());
+        Ok(())
+    })
+    .map_err(SetupError::from_conn)?;
 
     if sizes.is_empty() {
         return Err(SetupError::DictTrain(
@@ -208,40 +224,26 @@ where
 /// - row_count: the number of rows in the dictionary
 fn persist_dictionary<C>(
     conn: &mut C,
-    schemas: &[&SchemaName],
+    schema_name: &str,
+    table_name: &str,
+    column_name: &str,
     dictionary: &[u8],
     row_count: i64,
 ) -> Result<DictId, SetupError>
 where
     C: SetupConnection,
 {
-    let mut dict_id = None;
+    let sql = format!(
+        "INSERT INTO {schema_name} (dict, trained_at, table_name, column_name, row_count) \
+        VALUES (?1, strftime('%s', 'now'), '{table_name}', '{column_name}', {row_count}) \
+        RETURNING id"
+    );
 
-    for schema in schemas {
-        let schema_name = schema.as_zstd_schema_name();
-        let sql = match dict_id {
-            None => format!(
-                "INSERT INTO {schema_name} (dict, trained_at, row_count) \
-                 VALUES (?1, strftime('%s', 'now'), {row_count}) \
-                 RETURNING id"
-            ),
-            Some(id) => format!(
-                "INSERT INTO {schema_name} (id, dict, trained_at, row_count) \
-                 VALUES ({id}, ?1, strftime('%s', 'now'), {row_count}) \
-                 RETURNING id"
-            ),
-        };
+    let id = conn
+        .execute_blob(&sql, dictionary)
+        .map_err(SetupError::from_conn)?;
 
-        let id = conn
-            .execute_blob(&sql, dictionary)
-            .map_err(SetupError::from_conn)?;
-
-        let id = u32::try_from(id)
-            .map(DictId::new)
-            .map_err(|_| SetupError::DictTrain("dictionary id overflow".to_string()))?;
-
-        dict_id = Some(id);
-    }
-
-    dict_id.ok_or_else(|| SetupError::DictTrain("no schema to persist dictionary".to_string()))
+    return u32::try_from(id)
+        .map(DictId::new)
+        .map_err(|_| SetupError::DictTrain("dictionary id overflow".to_string()));
 }

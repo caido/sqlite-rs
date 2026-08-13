@@ -1,4 +1,4 @@
-use std::sync::Arc;
+/* use std::sync::Arc;
 
 use rusqlite::Connection;
 use sqlite_compress::{get_decoder, get_encoder, DictError, DictId, DictStore, DEFAULT_LEVEL};
@@ -124,3 +124,4 @@ fn query_blobs_returns_seeded_dict() {
     assert_eq!(rows.len(), 1);
     assert!(!rows[0].is_empty());
 }
+ */

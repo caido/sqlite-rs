@@ -55,6 +55,25 @@ impl Display for TableName {
 }
 
 #[derive(Debug, Clone)]
+pub struct SetupColumn {
+    pub name: ColumnName,
+    pub retrain_growth: usize,
+    pub min_samples: usize,
+    pub max_samples: usize,
+}
+
+impl SetupColumn {
+    pub fn new(name: &str, retrain_growth: usize, min_samples: usize, max_samples: usize) -> Self {
+        Self {
+            name: ColumnName::new(name),
+            retrain_growth,
+            min_samples,
+            max_samples,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct ColumnName(String);
 
 impl ColumnName {
@@ -91,14 +110,21 @@ pub trait SqlIdent {
 pub struct SetupConfig {
     pub tables: Vec<SetupTable>,
     pub compression_level: Level,
-    pub retrain_growth: usize,
+}
+
+impl SetupConfig {
+    pub fn iter_columns(&self) -> impl Iterator<Item = (&SetupTable, &SetupColumn)> {
+        self.tables
+            .iter()
+            .flat_map(|table| table.columns.iter().map(move |column| (table, column)))
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct SetupTable {
     pub name: TableName,
     pub schema: SchemaName,
-    pub columns: Vec<ColumnName>,
+    pub columns: Vec<SetupColumn>,
 }
 
 impl SetupTable {

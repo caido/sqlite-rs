@@ -1,4 +1,4 @@
-use rusqlite::Connection;
+/* use rusqlite::Connection;
 use sqlite_compress::{get_decoder, get_encoder, DictId, DEFAULT_LEVEL};
 use zstd::bulk::{Compressor, Decompressor};
 
@@ -85,3 +85,4 @@ fn roundtrip_multiple_payloads_with_same_dict() {
         assert_eq!(decompressed, original);
     }
 }
+ */

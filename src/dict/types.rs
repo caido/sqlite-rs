@@ -23,3 +23,12 @@ impl Display for DictId {
         write!(f, "{}", self.0)
     }
 }
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct ColumnKey(String);
+
+impl ColumnKey {
+    pub fn new(schema: &str, table_name: &str, column_name: &str) -> Self {
+        Self(format!("{schema}.{table_name}.{column_name}"))
+    }
+}
