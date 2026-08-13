@@ -61,6 +61,10 @@ impl ColumnName {
     pub fn new(name: &str) -> Self {
         Self(name.to_string())
     }
+
+    pub fn view_name(&self, table_name: &TableName) -> String {
+        format!("{}_{}{}", table_name.as_str(), self.as_str(), VIEW_SUFFIX)
+    }
 }
 
 impl SqlIdent for ColumnName {
@@ -110,12 +114,11 @@ impl SetupTable {
         self.name.quote()
     }
 
-    pub fn view_name(&self) -> String {
-        format!("{}{}", self.name.as_str(), VIEW_SUFFIX)
-    }
-
-    pub fn as_qualified_view_name(&self) -> String {
-        quote_qualified(self.schema.as_str(), &self.view_name())
+    pub fn column_as_qualified_view_name(&self, column_name: &ColumnName) -> String {
+        quote_qualified(
+            self.schema.as_str(),
+            column_name.view_name(&self.name).as_str(),
+        )
     }
 }
 

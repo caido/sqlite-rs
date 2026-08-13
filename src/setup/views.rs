@@ -35,45 +35,48 @@ where
 
 /// For each column in the table, check if the column exists in the database.
 /// Based on the table name and the schema.
-fn ensure_columns_exist<C>(
+fn ensure_column_exist<C>(
     conn: &mut C,
     table: &TableName,
     schema: &SchemaName,
-    columns: &Vec<ColumnName>,
+    column: &ColumnName,
 ) -> Result<bool, SetupError>
 where
     C: SetupConnection,
 {
-    for column in columns {
-        let col_exists = conn
-            .query_i64(&format!(
-                "SELECT COUNT(*) FROM pragma_table_info({table}, {schema}) WHERE name = {column}"
-            ))
-            .map_err(SetupError::from_conn)?;
+    let col_exists = conn
+        .query_i64(&format!(
+            "SELECT COUNT(*) FROM pragma_table_info({table}, {schema}) WHERE name = {column}"
+        ))
+        .map_err(SetupError::from_conn)?;
 
-        if col_exists == 0 {
-            return Err(SetupError::ColumnNotFound {
-                table: table.as_str().to_string(),
-                column: column.as_str().to_string(),
-            });
-        }
+    if col_exists == 0 {
+        return Err(SetupError::ColumnNotFound {
+            table: table.as_str().to_string(),
+            column: column.as_str().to_string(),
+        });
     }
+
     Ok(true)
 }
 
-/// Since only one view is created by schema, check if the view exists in the database.
-fn ensure_view_exists<C>(conn: &mut C, table: &SetupTable) -> Result<(), SetupError>
+/// A view is created for each column that targets the table in [`SetupConfig`].
+fn ensure_view_exist<C>(
+    conn: &mut C,
+    schema_qualified_name: &str,
+    table: &SetupTable,
+    column: &ColumnName,
+) -> Result<(), SetupError>
 where
     C: SetupConnection,
 {
-    let schema = table.as_qualified_schema_name();
-    let bare = table.view_name();
-    let qualified = table.as_qualified_view_name();
+    let column_view_name = column.view_name(&table.name);
+    let qualified = table.column_as_qualified_view_name(&column);
 
     let count = conn
         .query_i64(&format!(
-            "SELECT COUNT(*) FROM {schema}.sqlite_master \
-     WHERE type = 'view' AND name = '{bare}'"
+            "SELECT COUNT(*) FROM {schema_qualified_name}.sqlite_master \
+     WHERE type = 'view' AND name = '{column_view_name}'"
         ))
         .map_err(SetupError::from_conn)?;
 
@@ -90,16 +93,23 @@ where
     Ok(())
 }
 
-/// Create decode views for [`SetupConfig`] tables.
+/// Init go over several checks
+/// 1. Ensure the table exists in the database.
+/// 2. Ensure the columns exist in the database.
+/// 3. Ensure the views exist in the database.
+/// A view is created for each column that targets the table in [`SetupConfig`].
 pub fn init_view<C>(conn: &mut C, config: &SetupConfig) -> Result<(), SetupError>
 where
     C: SetupConnection,
 {
     for table in config.tables.iter() {
         ensure_table_exists(conn, &table.schema, &table.name)?;
-        ensure_columns_exist(conn, &table.name, &table.schema, &table.columns)?;
+        let schema = table.as_qualified_schema_name();
 
-        ensure_view_exists(conn, table)?;
+        for column in &table.columns {
+            ensure_column_exist(conn, &table.name, &table.schema, &column)?;
+            ensure_view_exist(conn, &schema, &table, &column)?;
+        }
     }
 
     Ok(())
