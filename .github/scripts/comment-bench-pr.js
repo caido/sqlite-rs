@@ -1,6 +1,6 @@
-const fs = require("fs"); 
+import fs from "fs";
 
-module.exports = async ({ github, context }) => {
+export default async function comment({ github, context }) {
   const marker = "<!-- criterion-bench-compare -->";
   const raw = fs.readFileSync("bench-compare.txt", "utf8");
   const clipped = raw.length > 60000 ? raw.slice(-60000) : raw;

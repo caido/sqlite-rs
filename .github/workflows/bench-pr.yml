@@ -54,10 +54,10 @@ jobs:
 
 
       - name: Comment comparison on PR
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
-            const comment = require('${{ github.workspace }}/.github/scripts/comment-bench-compare.js')
+            const { default: comment } = await import('${{ github.workspace }}/.github/scripts/comment-bench-compare.js')
             await comment({ github, context })
 
       - name: Upload Criterion HTML report
