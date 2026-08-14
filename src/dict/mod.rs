@@ -19,7 +19,7 @@ mod train;
 mod types;
 
 pub use train::{train_all, train_by_column};
-pub use types::{ColumnKey, DictId};
+pub use types::{ColumnKey, DictId, DictKey};
 
 pub static DICT_TABLE_NAME: &str = "__zstd_dicts";
 
@@ -57,12 +57,24 @@ fn load_raw_dict<C: DictStore>(
     rows.into_iter().next().ok_or(DictError::NotFound(dict_id))
 }
 
-pub fn get_encoder_cached(dict_id: DictId) -> Option<Arc<EncoderDictionary<'static>>> {
-    ENCODER_CACHE.get()?.lock().peek(dict_id)
+pub fn get_encoder_cached(
+    schema: &str,
+    dict_id: DictId,
+) -> Option<Arc<EncoderDictionary<'static>>> {
+    ENCODER_CACHE
+        .get()?
+        .lock()
+        .peek(&DictKey::new(schema, dict_id))
 }
 
-pub fn get_decoder_cached(dict_id: DictId) -> Option<Arc<DecoderDictionary<'static>>> {
-    DECODER_CACHE.get()?.lock().peek(dict_id)
+pub fn get_decoder_cached(
+    schema: &str,
+    dict_id: DictId,
+) -> Option<Arc<DecoderDictionary<'static>>> {
+    DECODER_CACHE
+        .get()?
+        .lock()
+        .peek(&DictKey::new(schema, dict_id))
 }
 
 pub fn get_encoder<C>(
@@ -75,8 +87,9 @@ where
     C: DictStore,
 {
     let cache = ENCODER_CACHE.get_or_init(|| Mutex::new(DictLru::new()));
+    let key = DictKey::new(schema, dict_id);
 
-    if let Some(d) = cache.lock().get(dict_id) {
+    if let Some(d) = cache.lock().get(&key) {
         return Ok(d.clone());
     }
 
@@ -85,10 +98,10 @@ where
 
     {
         let mut cache = cache.lock();
-        if let Some(d) = cache.get(dict_id) {
+        if let Some(d) = cache.get(&key) {
             return Ok(d);
         }
-        cache.insert(dict_id, encoder.clone());
+        cache.insert(key, encoder.clone());
     }
 
     Ok(encoder)
@@ -103,8 +116,9 @@ where
     C: DictStore,
 {
     let cache = DECODER_CACHE.get_or_init(|| Mutex::new(DictLru::new()));
+    let key = DictKey::new(schema, dict_id);
 
-    if let Some(d) = cache.lock().get(dict_id) {
+    if let Some(d) = cache.lock().get(&key) {
         return Ok(d.clone());
     }
 
@@ -113,10 +127,10 @@ where
 
     {
         let mut cache = cache.lock();
-        if let Some(d) = cache.get(dict_id) {
+        if let Some(d) = cache.get(&key) {
             return Ok(d);
         }
-        cache.insert(dict_id, decoder.clone());
+        cache.insert(key, decoder.clone());
     }
 
     Ok(decoder)
@@ -163,17 +177,18 @@ where
     Ok(())
 }
 
-pub fn insert_into_caches(dict_id: DictId, dictionary: &[u8], level: Level) {
+pub fn insert_into_caches(schema: &str, dict_id: DictId, dictionary: &[u8], level: Level) {
     let encoder = Arc::new(EncoderDictionary::copy(dictionary, level.get()));
     let decoder = Arc::new(DecoderDictionary::copy(dictionary));
+    let key = DictKey::new(schema, dict_id);
 
     ENCODER_CACHE
         .get_or_init(|| Mutex::new(DictLru::new()))
         .lock()
-        .insert(dict_id, encoder);
+        .insert(key.clone(), encoder);
 
     DECODER_CACHE
         .get_or_init(|| Mutex::new(DictLru::new()))
         .lock()
-        .insert(dict_id, decoder);
+        .insert(key, decoder);
 }

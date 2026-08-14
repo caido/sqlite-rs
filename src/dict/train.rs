@@ -91,9 +91,8 @@ where
         available,
     )?;
 
+    insert_into_caches(key.schema(), dict_id, &dictionary, compression_level);
     CURRENT_DICT_IDS.lock().insert(key, dict_id);
-
-    insert_into_caches(dict_id, &dictionary, compression_level);
 
     Ok(Some(dict_id))
 }

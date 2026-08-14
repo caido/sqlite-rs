@@ -7,17 +7,17 @@ use sqlite_compress::{
 mod common;
 use crate::common::{expect_decoder, expect_encoder};
 
-const SCHEMA: &str = "main";
-const DICT_TABLE: &str = "\"main\".\"__zstd_dicts\"";
+const SCHEMA: &str = "raw";
 
 fn column(name: &str) -> ColumnKey {
-    ColumnKey::new("raw", "requests_raw", name)
+    ColumnKey::new(SCHEMA, "requests_raw", name)
 }
 
 fn seed_dict(conn: &Connection, id: DictId, table_name: &str, column_name: &str) {
-    conn.execute_batch(&format!(
+    let _ = conn.execute("ATTACH DATABASE ':memory:' AS raw", []);
+    conn.execute_batch(
         r#"
-        CREATE TABLE IF NOT EXISTS {DICT_TABLE} (
+        CREATE TABLE IF NOT EXISTS "raw"."__zstd_dicts" (
             id INTEGER PRIMARY KEY,
             dict BLOB NOT NULL,
             trained_at INTEGER NOT NULL,
@@ -25,8 +25,8 @@ fn seed_dict(conn: &Connection, id: DictId, table_name: &str, column_name: &str)
             column_name TEXT NOT NULL,
             row_count INTEGER NOT NULL DEFAULT 0
         );
-        "#
-    ))
+        "#,
+    )
     .unwrap();
 
     let samples: Vec<Vec<u8>> = (0..32)
@@ -36,11 +36,9 @@ fn seed_dict(conn: &Connection, id: DictId, table_name: &str, column_name: &str)
     let dict = zstd::dict::from_samples(&sample_refs, 1024).unwrap();
 
     conn.execute(
-        &format!(
-            "INSERT OR REPLACE INTO {DICT_TABLE} \
-             (id, dict, trained_at, table_name, column_name, row_count) \
-             VALUES (?1, ?2, strftime('%s','now'), ?3, ?4, 32)"
-        ),
+        "INSERT OR REPLACE INTO \"raw\".\"__zstd_dicts\" \
+         (id, dict, trained_at, table_name, column_name, row_count) \
+         VALUES (?1, ?2, strftime('%s','now'), ?3, ?4, 32)",
         rusqlite::params![id.get(), dict, table_name, column_name],
     )
     .unwrap();

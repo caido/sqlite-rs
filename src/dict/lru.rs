@@ -3,17 +3,17 @@ use std::{
     sync::Arc,
 };
 
-use crate::dict::types::DictId;
+use crate::dict::types::DictKey;
 
 const MAX_CACHED_DICTS: usize = 5;
 
-/// Fixed-capacity LRU cache of dictionaries keyed by [`DictId`].
+/// Fixed-capacity LRU cache of dictionaries keyed by [`DictKey`].
 ///
 /// Holds at most [`MAX_CACHED_DICTS`] entries. [`DictLru::get`] and [`DictLru::insert`]
-/// promote an id to most-recent; [`DictLru::peek`] does not.
+/// promote a key to most-recent; [`DictLru::peek`] does not.
 pub struct DictLru<T> {
-    map: HashMap<DictId, Arc<T>>,
-    order: VecDeque<DictId>,
+    map: HashMap<DictKey, Arc<T>>,
+    order: VecDeque<DictKey>,
 }
 
 impl<T> DictLru<T> {
@@ -24,20 +24,20 @@ impl<T> DictLru<T> {
         }
     }
 
-    pub fn get(&mut self, id: DictId) -> Option<Arc<T>> {
-        let value = self.map.get(&id)?.clone();
-        self.touch(id);
+    pub fn get(&mut self, key: &DictKey) -> Option<Arc<T>> {
+        let value = self.map.get(key)?.clone();
+        self.touch(key);
         Some(value)
     }
 
-    pub fn peek(&self, id: DictId) -> Option<Arc<T>> {
-        self.map.get(&id).cloned()
+    pub fn peek(&self, key: &DictKey) -> Option<Arc<T>> {
+        self.map.get(key).cloned()
     }
 
-    pub fn insert(&mut self, id: DictId, value: Arc<T>) {
-        if let Entry::Occupied(mut e) = self.map.entry(id) {
+    pub fn insert(&mut self, key: DictKey, value: Arc<T>) {
+        if let Entry::Occupied(mut e) = self.map.entry(key.clone()) {
             e.insert(value);
-            self.touch(id);
+            self.touch(&key);
             return;
         }
 
@@ -46,63 +46,78 @@ impl<T> DictLru<T> {
                 self.map.remove(&evicted);
             }
         }
-        self.map.insert(id, value);
-        self.order.push_back(id);
+        self.map.insert(key.clone(), value);
+        self.order.push_back(key);
     }
 
-    fn touch(&mut self, id: DictId) {
-        self.order.retain(|&x| x != id);
-        self.order.push_back(id);
+    fn touch(&mut self, key: &DictKey) {
+        self.order.retain(|x| x != key);
+        self.order.push_back(key.clone());
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn id(n: u32) -> DictId {
-        DictId::new(n)
+    use crate::dict::types::DictId;
+
+    fn key(schema: &str, n: u32) -> DictKey {
+        DictKey::new(schema, DictId::new(n))
     }
+
     #[test]
     fn evicts_oldest_after_five() {
         let mut cache = DictLru::new();
         for n in 1..=5 {
-            cache.insert(id(n), Arc::new(n));
+            cache.insert(key("main", n), Arc::new(n));
         }
-        cache.insert(id(6), Arc::new(6));
-        assert!(cache.peek(id(1)).is_none());
-        assert!(cache.peek(id(2)).is_some());
-        assert!(cache.peek(id(6)).is_some());
+        cache.insert(key("main", 6), Arc::new(6));
+        assert!(cache.peek(&key("main", 1)).is_none());
+        assert!(cache.peek(&key("main", 2)).is_some());
+        assert!(cache.peek(&key("main", 6)).is_some());
     }
+
     #[test]
     fn get_promotes_to_most_recent() {
         let mut cache = DictLru::new();
         for n in 1..=5 {
-            cache.insert(id(n), Arc::new(n));
+            cache.insert(key("main", n), Arc::new(n));
         }
-        assert!(cache.get(id(1)).is_some());
-        cache.insert(id(6), Arc::new(6));
-        assert!(cache.peek(id(1)).is_some());
-        assert!(cache.peek(id(2)).is_none());
+        assert!(cache.get(&key("main", 1)).is_some());
+        cache.insert(key("main", 6), Arc::new(6));
+        assert!(cache.peek(&key("main", 1)).is_some());
+        assert!(cache.peek(&key("main", 2)).is_none());
     }
+
     #[test]
     fn peek_does_not_promote() {
         let mut cache = DictLru::new();
         for n in 1..=5 {
-            cache.insert(id(n), Arc::new(n));
+            cache.insert(key("main", n), Arc::new(n));
         }
-        assert!(cache.peek(id(1)).is_some());
-        cache.insert(id(6), Arc::new(6));
-        assert!(cache.peek(id(1)).is_none());
+        assert!(cache.peek(&key("main", 1)).is_some());
+        cache.insert(key("main", 6), Arc::new(6));
+        assert!(cache.peek(&key("main", 1)).is_none());
     }
+
     #[test]
     fn reinsert_updates_value_and_promotes() {
         let mut cache = DictLru::new();
         for n in 1..=5 {
-            cache.insert(id(n), Arc::new(n));
+            cache.insert(key("main", n), Arc::new(n));
         }
-        cache.insert(id(1), Arc::new(100));
-        cache.insert(id(6), Arc::new(6));
-        assert_eq!(*cache.peek(id(1)).unwrap(), 100);
-        assert!(cache.peek(id(2)).is_none());
+        cache.insert(key("main", 1), Arc::new(100));
+        cache.insert(key("main", 6), Arc::new(6));
+        assert_eq!(*cache.peek(&key("main", 1)).unwrap(), 100);
+        assert!(cache.peek(&key("main", 2)).is_none());
+    }
+
+    #[test]
+    fn same_id_different_schema_are_distinct() {
+        let mut cache = DictLru::new();
+        cache.insert(key("raw", 1), Arc::new(10));
+        cache.insert(key("archive", 1), Arc::new(20));
+        assert_eq!(*cache.peek(&key("raw", 1)).unwrap(), 10);
+        assert_eq!(*cache.peek(&key("archive", 1)).unwrap(), 20);
     }
 }

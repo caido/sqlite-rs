@@ -157,7 +157,7 @@ fn query_blobs_returns_seeded_dict() {
 }
 
 #[test]
-fn get_encoder_and_decoder_load_from_schema_dict_table() {
+fn get_encoder_and_decoder_isolate_same_id_across_schemas() {
     let conn = Connection::open_in_memory().unwrap();
     conn.execute_batch(
         r#"
@@ -182,36 +182,32 @@ fn get_encoder_and_decoder_load_from_schema_dict_table() {
     )
     .unwrap();
 
-    let raw_id = DictId::new(11_001);
-    let archive_id = DictId::new(11_002);
+    let id = DictId::new(1);
+    let archive_only = DictId::new(2);
 
-    seed_dict_into(&conn, "raw", raw_id, "requests_raw", "data");
-    seed_dict_into(&conn, "archive", archive_id, "requests_raw", "data");
+    seed_dict_into(&conn, "raw", id, "requests_raw", "data");
+    seed_dict_into(&conn, "archive", id, "requests_raw", "data");
+    seed_dict_into(&conn, "archive", archive_only, "requests_raw", "data");
 
     let mut wrapper = common::RusqliteConn::new(&conn);
 
-    // cold cache: wrong schema must hit DB → NotReady
-    match get_encoder("raw", archive_id, &mut wrapper, DEFAULT_LEVEL) {
-        Err(DictError::NotReady) => {}
-        Ok(_) => panic!("expected NotReady from wrong table, got Ok"),
-        Err(e) => panic!("expected NotReady from wrong table, got Err({e})"),
-    }
-    match get_decoder("archive", raw_id, &mut wrapper) {
-        Err(DictError::NotReady) => {}
-        Ok(_) => panic!("expected NotReady from wrong table, got Ok"),
-        Err(e) => panic!("expected NotReady from wrong table, got Err({e})"),
-    }
-
-    // correct schemas → Ok
-    let raw_enc = expect_encoder(get_encoder("raw", raw_id, &mut wrapper, DEFAULT_LEVEL));
-    let archive_enc = expect_encoder(get_encoder(
-        "archive",
-        archive_id,
-        &mut wrapper,
-        DEFAULT_LEVEL,
-    ));
+    // warm both schemas first — same DictId must not collide
+    let raw_enc = expect_encoder(get_encoder("raw", id, &mut wrapper, DEFAULT_LEVEL));
+    let archive_enc = expect_encoder(get_encoder("archive", id, &mut wrapper, DEFAULT_LEVEL));
     assert!(!Arc::ptr_eq(&raw_enc, &archive_enc));
 
-    expect_decoder(get_decoder("raw", raw_id, &mut wrapper));
-    expect_decoder(get_decoder("archive", archive_id, &mut wrapper));
+    let raw_enc_again = expect_encoder(get_encoder("raw", id, &mut wrapper, DEFAULT_LEVEL));
+    assert!(Arc::ptr_eq(&raw_enc, &raw_enc_again));
+
+    expect_decoder(get_decoder("archive", archive_only, &mut wrapper));
+    match get_encoder("raw", archive_only, &mut wrapper, DEFAULT_LEVEL) {
+        Err(DictError::NotReady) => {}
+        Ok(_) => panic!("expected NotReady from wrong schema after cache warm, got Ok"),
+        Err(e) => panic!("expected NotReady from wrong schema after cache warm, got Err({e})"),
+    }
+    match get_decoder("raw", archive_only, &mut wrapper) {
+        Err(DictError::NotReady) => {}
+        Ok(_) => panic!("expected NotReady from wrong schema after cache warm, got Ok"),
+        Err(e) => panic!("expected NotReady from wrong schema after cache warm, got Err({e})"),
+    }
 }

@@ -28,12 +28,12 @@ fn decompress_raw(
 }
 
 pub fn decompress(blob: &[u8]) -> std::result::Result<Vec<u8>, CodecError> {
-    let (header, _schema, payload) = Header::parse(blob)?;
+    let (header, schema, payload) = Header::parse(blob)?;
     let dict_id = DictId::from(header.dict_id.get());
     let len = header.uncompressed_len.get() as usize;
 
     if dict_id.get() != 0 {
-        if let Some(decoder) = get_decoder_cached(dict_id) {
+        if let Some(decoder) = get_decoder_cached(schema, dict_id) {
             return decompress_with_decoder(payload, &decoder, len)
                 .map_err(CodecError::DecompressionFailed);
         }

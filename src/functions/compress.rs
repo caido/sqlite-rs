@@ -42,7 +42,7 @@ pub fn compress(
 
     if let Some(id) = id {
         if id.get() != 0 {
-            if let Some(encoder) = get_encoder_cached(id) {
+            if let Some(encoder) = get_encoder_cached(column.schema(), id) {
                 return compress_with_encoder(id, column.schema(), data, &encoder);
             }
         }
