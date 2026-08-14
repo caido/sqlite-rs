@@ -6,6 +6,8 @@ mod common;
 
 use crate::common::{expect_decoder, expect_encoder};
 
+const DICT_TABLE: &str = "__zstd_dicts";
+
 fn insert_trained_dict(
     conn: &Connection,
     id: DictId,
@@ -47,8 +49,8 @@ fn insert_dict_encode_decode_equals_input() {
     let _dict_bytes = insert_trained_dict(&conn, id, "requests_raw", "data");
 
     let mut wrapper = common::RusqliteConn::new(&conn);
-    let encoder = expect_encoder(get_encoder(id, &mut wrapper, DEFAULT_LEVEL));
-    let decoder = expect_decoder(get_decoder(id, &mut wrapper));
+    let encoder = expect_encoder(get_encoder(DICT_TABLE, id, &mut wrapper, DEFAULT_LEVEL));
+    let decoder = expect_decoder(get_decoder(DICT_TABLE, id, &mut wrapper));
 
     let original = b"GET /api/users/42 HTTP/1.1\r\nHost: example.com\r\n\r\n";
 
@@ -71,8 +73,8 @@ fn roundtrip_multiple_payloads_with_same_dict() {
     insert_trained_dict(&conn, id, "requests_raw", "data");
 
     let mut wrapper = common::RusqliteConn::new(&conn);
-    let encoder = expect_encoder(get_encoder(id, &mut wrapper, DEFAULT_LEVEL));
-    let decoder = expect_decoder(get_decoder(id, &mut wrapper));
+    let encoder = expect_encoder(get_encoder(DICT_TABLE, id, &mut wrapper, DEFAULT_LEVEL));
+    let decoder = expect_decoder(get_decoder(DICT_TABLE, id, &mut wrapper));
 
     let payloads: [&[u8]; 3] = [
         b"GET /api/users/1 HTTP/1.1\r\nHost: example.com\r\n\r\n",

@@ -5,12 +5,15 @@ use crate::{
     conn::SqliteConn,
     dict::{
         errors::DictError, get_encoder, get_encoder_cached, ColumnKey, DictId, CURRENT_DICT_IDS,
+        DICT_TABLE_NAME,
     },
     functions::{errors::CodecError, header::wrap, types::Level, DEFAULT_LEVEL},
+    utils::quote_qualified,
 };
 
 fn compress_with_encoder(
     dict_id: DictId,
+    schema: &str,
     data: &[u8],
     encoder: &zstd::dict::EncoderDictionary<'static>,
 ) -> std::result::Result<Vec<u8>, CodecError> {
@@ -19,13 +22,17 @@ fn compress_with_encoder(
     let compressed = compressor
         .compress(data)
         .map_err(CodecError::CompressionFailed)?;
-    wrap(dict_id, data.len(), compressed)
+    wrap(dict_id, schema, data.len(), compressed)
 }
 
-fn compress_raw(data: &[u8], level: Level) -> std::result::Result<Vec<u8>, CodecError> {
+fn compress_raw(
+    schema: &str,
+    data: &[u8],
+    level: Level,
+) -> std::result::Result<Vec<u8>, CodecError> {
     let compressed =
         zstd::stream::encode_all(data, level.get()).map_err(CodecError::CompressionFailed)?;
-    wrap(DictId::from(0), data.len(), compressed)
+    wrap(DictId::from(0), schema, data.len(), compressed)
 }
 
 pub fn compress(
@@ -43,12 +50,12 @@ pub fn compress(
     if let Some(id) = id {
         if id.get() != 0 {
             if let Some(encoder) = get_encoder_cached(id) {
-                return compress_with_encoder(id, data, &encoder);
+                return compress_with_encoder(id, schema, data, &encoder);
             }
         }
     }
 
-    compress_raw(data, level)
+    compress_raw(schema, data, level)
 }
 
 pub fn sqlite_compress(context: *mut sqlite3_context, values: &[*mut sqlite3_value]) -> Result<()> {
@@ -56,6 +63,7 @@ pub fn sqlite_compress(context: *mut sqlite3_context, values: &[*mut sqlite3_val
     let schema = api::value_text(&values[1])?;
     let table = api::value_text(&values[2])?;
     let column = api::value_text(&values[3])?;
+    let dict_table = quote_qualified(schema, DICT_TABLE_NAME);
 
     let id = CURRENT_DICT_IDS
         .lock()
@@ -65,12 +73,12 @@ pub fn sqlite_compress(context: *mut sqlite3_context, values: &[*mut sqlite3_val
     let mut conn = SqliteConn::from_context(context);
 
     let compressed = match id.filter(|id| id.get() != 0) {
-        Some(id) => match get_encoder(id, &mut conn, DEFAULT_LEVEL) {
-            Ok(encoder) => compress_with_encoder(id, data, &encoder)?,
-            Err(DictError::NotReady) => compress_raw(data, DEFAULT_LEVEL)?,
+        Some(id) => match get_encoder(&dict_table, id, &mut conn, DEFAULT_LEVEL) {
+            Ok(encoder) => compress_with_encoder(id, schema, data, &encoder)?,
+            Err(DictError::NotReady) => compress_raw(schema, data, DEFAULT_LEVEL)?,
             Err(e) => return Err(CodecError::DictError(e).into()),
         },
-        None => compress_raw(data, DEFAULT_LEVEL)?,
+        None => compress_raw(schema, data, DEFAULT_LEVEL)?,
     };
 
     api::result_blob(context, &compressed);

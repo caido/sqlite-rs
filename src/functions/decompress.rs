@@ -3,11 +3,12 @@ use zstd::bulk::Decompressor;
 
 use crate::{
     conn::SqliteConn,
-    dict::{get_decoder, get_decoder_cached},
+    dict::{get_decoder, get_decoder_cached, DICT_TABLE_NAME},
     functions::{
         errors::CodecError::{self},
         header::Header,
     },
+    utils::quote_qualified,
     DictError, DictId,
 };
 
@@ -28,7 +29,7 @@ fn decompress_raw(
 }
 
 pub fn decompress(blob: &[u8]) -> std::result::Result<Vec<u8>, CodecError> {
-    let (header, payload) = Header::parse(blob)?;
+    let (header, _schema, payload) = Header::parse(blob)?;
     let dict_id = DictId::from(header.dict_id.get());
     let len = header.uncompressed_len.get() as usize;
 
@@ -50,14 +51,15 @@ pub fn sqlite_decompress(
         .ok_or(CodecError::DecompressionRequiresOneArgument)?;
 
     let blob = api::value_blob(value);
-    let (header, payload) = Header::parse(blob)?;
+    let (header, schema, payload) = Header::parse(blob)?;
     let mut conn = SqliteConn::from_context(context);
 
     let dict_id = DictId::from(header.dict_id.get());
     let len = header.uncompressed_len.get() as usize;
+    let dict_table = quote_qualified(schema, DICT_TABLE_NAME);
 
     let decompressed = if dict_id.get() != 0 {
-        match get_decoder(dict_id, &mut conn) {
+        match get_decoder(&dict_table, dict_id, &mut conn) {
             Ok(decoder) => decompress_with_decoder(payload, &decoder, len)
                 .map_err(CodecError::DecompressionFailed)?,
             Err(DictError::NotReady) => decompress_raw(payload, len)?,

@@ -5,6 +5,7 @@ use crate::{
     },
     functions::Level,
     setup::{SetupConfig, SetupConnection, SetupError, SqlIdent},
+    utils::quote_literal,
     SetupColumn, SetupTable, CURRENT_DICT_IDS,
 };
 
@@ -22,8 +23,6 @@ pub fn train_all<C>(
 where
     C: SetupConnection,
 {
-    validate_config(config, dict_capacity)?;
-
     let mut dict_ids = Vec::new();
 
     for (table, column) in config.iter_columns() {
@@ -46,6 +45,8 @@ pub fn train_by_column<C>(
 where
     C: SetupConnection,
 {
+    validate_config(table.columns.len(), dict_capacity)?;
+
     let table_name = table.as_qualified_name();
     let column_name = column.name.quote();
     let dict_table = table.schema.as_zstd_schema_name();
@@ -101,20 +102,14 @@ where
 
 /// Validate the config is valid.
 /// It is done by checking the dictionary capacity and the tables and columns configuration.
-fn validate_config(config: &SetupConfig, dict_capacity: usize) -> Result<(), SetupError> {
+fn validate_config(column_size: usize, dict_capacity: usize) -> Result<(), SetupError> {
     if dict_capacity == 0 {
         return Err(SetupError::InvalidConfig(
             "dictionary capacity must be greater than zero",
         ));
     }
 
-    if config.tables.is_empty() {
-        return Err(SetupError::InvalidConfig(
-            "at least one table must be configured",
-        ));
-    }
-
-    if config.tables.iter().all(|table| table.columns.is_empty()) {
+    if column_size == 0 {
         return Err(SetupError::InvalidConfig(
             "at least one column must be configured",
         ));
@@ -162,9 +157,11 @@ where
         .query_i64(&format!(
             "SELECT COALESCE(\
                 (SELECT row_count FROM {dict_table} \
-                 WHERE table_name = '{table_name}' AND column_name = '{column_name}' \
+                 WHERE table_name = {} AND column_name = {} \
                  ORDER BY id DESC LIMIT 1),\
-                -1)"
+                -1)",
+            quote_literal(table_name),
+            quote_literal(column_name)
         ))
         .map_err(SetupError::from_conn)?;
 
@@ -235,8 +232,10 @@ where
 {
     let sql = format!(
         "INSERT INTO {schema_name} (dict, trained_at, table_name, column_name, row_count) \
-        VALUES (?1, strftime('%s', 'now'), '{table_name}', '{column_name}', {row_count}) \
-        RETURNING id"
+        VALUES (?1, strftime('%s', 'now'), {}, {}, {row_count}) \
+        RETURNING id",
+        quote_literal(table_name),
+        quote_literal(column_name)
     );
 
     let id = conn

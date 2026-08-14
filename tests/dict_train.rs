@@ -241,7 +241,7 @@ fn train_by_column_persists_one_column() {
     };
 
     let config = SetupConfig {
-        tables: vec![table.clone()], // ou rebuild SetupTable si Clone manque
+        tables: vec![table.clone()],
         compression_level: DEFAULT_LEVEL,
     };
 
@@ -251,7 +251,7 @@ fn train_by_column_persists_one_column() {
     let dict_id = train_by_column(
         &mut wrapper,
         &config.tables[0],
-        &config.tables[0].columns[0], // data only
+        &config.tables[0].columns[0],
         config.compression_level,
         1024,
     )
@@ -441,7 +441,7 @@ fn train_all_fills_current_dict_ids_and_compress_roundtrips() {
     };
 
     let key = ColumnKey::new("raw", "requests_raw", "data");
-    CURRENT_DICT_IDS.lock().remove(&key); // prove train_all fills it
+    CURRENT_DICT_IDS.lock().remove(&key);
 
     let mut wrapper = common::RusqliteConn::new(&conn);
     setup(&mut wrapper, &config).unwrap();
@@ -456,7 +456,7 @@ fn train_all_fills_current_dict_ids_and_compress_roundtrips() {
     let original = b"GET /api/users/42 HTTP/1.1\r\nHost: example.com\r\n\r\n";
     let compressed = compress(original, "raw", "requests_raw", "data", DEFAULT_LEVEL).unwrap();
 
-    let (header, _) = Header::parse(&compressed).unwrap();
+    let (header, _schema, _payload) = Header::parse(&compressed).unwrap();
     assert_eq!(header.dict_id.get(), dict_ids[0].get());
     assert_eq!(decompress(&compressed).unwrap(), original);
 }

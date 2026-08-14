@@ -1,10 +1,9 @@
-use std::format;
-
 use crate::{
     setup::{
         config::{ColumnName, SchemaName, TableName},
         SetupConfig, SetupConnection, SetupError, SqlIdent,
     },
+    utils::quote_literal,
     SetupTable,
 };
 
@@ -78,7 +77,8 @@ where
     let count = conn
         .query_i64(&format!(
             "SELECT COUNT(*) FROM {schema_qualified_name}.sqlite_master \
-     WHERE type = 'view' AND name = '{column_view_name}'"
+     WHERE type = 'view' AND name = {}",
+            quote_literal(column_view_name.as_str())
         ))
         .map_err(SetupError::from_conn)?;
 
@@ -95,7 +95,7 @@ where
     Ok(())
 }
 
-/// Init go over several checks
+/// Init goes through several checks
 /// 1. Ensure the table exists in the database.
 /// 2. Ensure the columns exist in the database.
 /// 3. Ensure the views exist in the database.

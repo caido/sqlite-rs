@@ -29,6 +29,14 @@ pub struct ColumnKey(String);
 
 impl ColumnKey {
     pub fn new(schema: &str, table_name: &str, column_name: &str) -> Self {
-        Self(format!("{schema}.{table_name}.{column_name}"))
+        Self(format!(
+            "{}:{}|{}:{}|{}:{}",
+            schema.len(),
+            schema,
+            table_name.len(),
+            table_name,
+            column_name.len(),
+            column_name
+        ))
     }
 }

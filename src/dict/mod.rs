@@ -10,6 +10,7 @@ use crate::{
     dict::{errors::DictError, lru::DictLru},
     functions::Level,
     setup::{DictStore, SetupConnection},
+    utils::quote_literal,
 };
 
 pub mod errors;
@@ -32,10 +33,14 @@ pub static CURRENT_DICT_IDS: LazyLock<Mutex<HashMap<ColumnKey, DictId>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Load the raw dictionary from the database.
-fn load_raw_dict<C: DictStore>(dict_id: DictId, conn: &mut C) -> Result<Vec<u8>, DictError> {
+fn load_raw_dict<C: DictStore>(
+    dict_table: &str,
+    dict_id: DictId,
+    conn: &mut C,
+) -> Result<Vec<u8>, DictError> {
     let rows = conn
         .query_blobs(&format!(
-            "SELECT dict FROM \"{DICT_TABLE_NAME}\" WHERE id = {}",
+            "SELECT dict FROM {dict_table} WHERE id = {}",
             dict_id.get()
         ))
         .map_err(|e| DictError::Connection(e.into()))?;
@@ -56,6 +61,7 @@ pub fn get_decoder_cached(dict_id: DictId) -> Option<Arc<DecoderDictionary<'stat
 }
 
 pub fn get_encoder<C>(
+    dict_table: &str,
     dict_id: DictId,
     conn: &mut C,
     level: Level,
@@ -69,7 +75,7 @@ where
         return Ok(d.clone());
     }
 
-    let raw = load_raw_dict(dict_id, conn)?;
+    let raw = load_raw_dict(dict_table, dict_id, conn)?;
     let encoder = Arc::new(EncoderDictionary::copy(&raw, level.get()));
 
     {
@@ -84,6 +90,7 @@ where
 }
 
 pub fn get_decoder<C>(
+    dict_table: &str,
     dict_id: DictId,
     conn: &mut C,
 ) -> Result<Arc<DecoderDictionary<'static>>, DictError>
@@ -96,7 +103,7 @@ where
         return Ok(d.clone());
     }
 
-    let raw = load_raw_dict(dict_id, conn)?;
+    let raw = load_raw_dict(dict_table, dict_id, conn)?;
     let decoder = Arc::new(DecoderDictionary::copy(&raw));
 
     {
@@ -135,7 +142,9 @@ where
     let latest = conn
         .query_i64(&format!(
             "SELECT COALESCE(MAX(id), 0) FROM {dict_table} \
-             WHERE table_name = '{table_name}' AND column_name = '{column_name}'"
+             WHERE table_name = {} AND column_name = {}",
+            quote_literal(table_name),
+            quote_literal(column_name)
         ))
         .map_err(|e| DictError::Connection(e.into()))?;
 
@@ -151,8 +160,8 @@ where
         .lock()
         .insert(ColumnKey::new(schema, table_name, column_name), dict_id);
 
-    let _ = get_encoder(dict_id, conn, level)?;
-    let _ = get_decoder(dict_id, conn)?;
+    let _ = get_encoder(dict_table, dict_id, conn, level)?;
+    let _ = get_decoder(dict_table, dict_id, conn)?;
 
     Ok(())
 }
