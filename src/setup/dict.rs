@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use super::{SetupConfig, SetupConnection, SetupError};
 use crate::{
-    dict::{warm_cache, DICT_TABLE_NAME},
+    dict::{warm_cache, ColumnKey, DICT_TABLE_NAME},
     setup::SqlIdent,
 };
 
@@ -46,17 +46,14 @@ where
     ensure_table_exists(conn, config)?;
 
     for table in &config.tables {
-        let dict_table = table.schema.as_zstd_schema_name();
         for column in &table.columns {
-            warm_cache(
-                conn,
-                &dict_table,
+            let key = ColumnKey::new(
                 table.schema.as_str(),
                 table.name.as_str(),
                 column.name.as_str(),
-                config.compression_level,
-            )
-            .map_err(|e| SetupError::DictTrain(e.to_string()))?;
+            );
+            warm_cache(conn, &key, config.compression_level)
+                .map_err(|e| SetupError::DictTrain(e.to_string()))?;
         }
     }
 

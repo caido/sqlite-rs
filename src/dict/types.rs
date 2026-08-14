@@ -25,18 +25,30 @@ impl Display for DictId {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct ColumnKey(String);
+pub struct ColumnKey {
+    schema: String,
+    table: String,
+    column: String,
+}
 
 impl ColumnKey {
-    pub fn new(schema: &str, table_name: &str, column_name: &str) -> Self {
-        Self(format!(
-            "{}:{}|{}:{}|{}:{}",
-            schema.len(),
-            schema,
-            table_name.len(),
-            table_name,
-            column_name.len(),
-            column_name
-        ))
+    pub fn new(schema: &str, table: &str, column: &str) -> Self {
+        Self {
+            schema: schema.to_string(),
+            table: table.to_string(),
+            column: column.to_string(),
+        }
+    }
+
+    pub fn schema(&self) -> &str {
+        &self.schema
+    }
+
+    pub fn table(&self) -> &str {
+        &self.table
+    }
+
+    pub fn column(&self) -> &str {
+        &self.column
     }
 }

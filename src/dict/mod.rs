@@ -10,7 +10,7 @@ use crate::{
     dict::{errors::DictError, lru::DictLru},
     functions::Level,
     setup::{DictStore, SetupConnection},
-    utils::quote_literal,
+    utils::{quote_literal, quote_qualified},
 };
 
 pub mod errors;
@@ -23,6 +23,10 @@ pub use types::{ColumnKey, DictId};
 
 pub static DICT_TABLE_NAME: &str = "__zstd_dicts";
 
+pub fn dict_table(schema: &str) -> String {
+    quote_qualified(schema, DICT_TABLE_NAME)
+}
+
 type EncoderCache = Mutex<DictLru<EncoderDictionary<'static>>>;
 type DecoderCache = Mutex<DictLru<DecoderDictionary<'static>>>;
 
@@ -34,13 +38,14 @@ pub static CURRENT_DICT_IDS: LazyLock<Mutex<HashMap<ColumnKey, DictId>>> =
 
 /// Load the raw dictionary from the database.
 fn load_raw_dict<C: DictStore>(
-    dict_table: &str,
+    schema: &str,
     dict_id: DictId,
     conn: &mut C,
 ) -> Result<Vec<u8>, DictError> {
+    let table = dict_table(schema);
     let rows = conn
         .query_blobs(&format!(
-            "SELECT dict FROM {dict_table} WHERE id = {}",
+            "SELECT dict FROM {table} WHERE id = {}",
             dict_id.get()
         ))
         .map_err(|e| DictError::Connection(e.into()))?;
@@ -61,7 +66,7 @@ pub fn get_decoder_cached(dict_id: DictId) -> Option<Arc<DecoderDictionary<'stat
 }
 
 pub fn get_encoder<C>(
-    dict_table: &str,
+    schema: &str,
     dict_id: DictId,
     conn: &mut C,
     level: Level,
@@ -75,7 +80,7 @@ where
         return Ok(d.clone());
     }
 
-    let raw = load_raw_dict(dict_table, dict_id, conn)?;
+    let raw = load_raw_dict(schema, dict_id, conn)?;
     let encoder = Arc::new(EncoderDictionary::copy(&raw, level.get()));
 
     {
@@ -90,7 +95,7 @@ where
 }
 
 pub fn get_decoder<C>(
-    dict_table: &str,
+    schema: &str,
     dict_id: DictId,
     conn: &mut C,
 ) -> Result<Arc<DecoderDictionary<'static>>, DictError>
@@ -103,7 +108,7 @@ where
         return Ok(d.clone());
     }
 
-    let raw = load_raw_dict(dict_table, dict_id, conn)?;
+    let raw = load_raw_dict(schema, dict_id, conn)?;
     let decoder = Arc::new(DecoderDictionary::copy(&raw));
 
     {
@@ -125,26 +130,20 @@ where
 /// The dictionary is inserted into the caches is mandatory to ensure the dictionary is ready to be used.
 /// By [get_decoder_cached](crate::dict::get_decoder_cached), [get_encoder_cached](crate::dict::get_encoder_cached),
 /// the dictionary is cached in memory.
-pub fn warm_cache<C>(
-    conn: &mut C,
-    dict_table: &str,
-    schema: &str,
-    table_name: &str,
-    column_name: &str,
-    level: Level,
-) -> Result<(), DictError>
+pub fn warm_cache<C>(conn: &mut C, column: &ColumnKey, level: Level) -> Result<(), DictError>
 where
     C: SetupConnection,
 {
     ENCODER_CACHE.get_or_init(|| Mutex::new(DictLru::new()));
     DECODER_CACHE.get_or_init(|| Mutex::new(DictLru::new()));
 
+    let table = dict_table(column.schema());
     let latest = conn
         .query_i64(&format!(
-            "SELECT COALESCE(MAX(id), 0) FROM {dict_table} \
+            "SELECT COALESCE(MAX(id), 0) FROM {table} \
              WHERE table_name = {} AND column_name = {}",
-            quote_literal(table_name),
-            quote_literal(column_name)
+            quote_literal(column.table()),
+            quote_literal(column.column())
         ))
         .map_err(|e| DictError::Connection(e.into()))?;
 
@@ -156,12 +155,10 @@ where
         .map(DictId::new)
         .map_err(|_| DictError::NotFound(DictId::new(0)))?;
 
-    CURRENT_DICT_IDS
-        .lock()
-        .insert(ColumnKey::new(schema, table_name, column_name), dict_id);
+    CURRENT_DICT_IDS.lock().insert(column.clone(), dict_id);
 
-    let _ = get_encoder(dict_table, dict_id, conn, level)?;
-    let _ = get_decoder(dict_table, dict_id, conn)?;
+    let _ = get_encoder(column.schema(), dict_id, conn, level)?;
+    let _ = get_decoder(column.schema(), dict_id, conn)?;
 
     Ok(())
 }

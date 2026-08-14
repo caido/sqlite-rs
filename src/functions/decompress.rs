@@ -3,12 +3,11 @@ use zstd::bulk::Decompressor;
 
 use crate::{
     conn::SqliteConn,
-    dict::{get_decoder, get_decoder_cached, DICT_TABLE_NAME},
+    dict::{get_decoder, get_decoder_cached},
     functions::{
         errors::CodecError::{self},
         header::Header,
     },
-    utils::quote_qualified,
     DictError, DictId,
 };
 
@@ -56,10 +55,9 @@ pub fn sqlite_decompress(
 
     let dict_id = DictId::from(header.dict_id.get());
     let len = header.uncompressed_len.get() as usize;
-    let dict_table = quote_qualified(schema, DICT_TABLE_NAME);
 
     let decompressed = if dict_id.get() != 0 {
-        match get_decoder(&dict_table, dict_id, &mut conn) {
+        match get_decoder(schema, dict_id, &mut conn) {
             Ok(decoder) => decompress_with_decoder(payload, &decoder, len)
                 .map_err(CodecError::DecompressionFailed)?,
             Err(DictError::NotReady) => decompress_raw(payload, len)?,

@@ -1,6 +1,6 @@
 use crate::{
     dict::{
-        insert_into_caches,
+        dict_table, insert_into_caches,
         types::{ColumnKey, DictId},
     },
     functions::Level,
@@ -47,9 +47,14 @@ where
 {
     validate_config(table.columns.len(), dict_capacity)?;
 
+    let key = ColumnKey::new(
+        table.schema.as_str(),
+        table.name.as_str(),
+        column.name.as_str(),
+    );
     let table_name = table.as_qualified_name();
     let column_name = column.name.quote();
-    let dict_table = table.schema.as_zstd_schema_name();
+    let dict_store = dict_table(key.schema());
 
     let (enough, available) =
         has_enough_samples(conn, &table_name, &column_name, column.min_samples)?;
@@ -60,9 +65,9 @@ where
 
     if !has_retrain_required(
         conn,
-        &dict_table,
-        table.name.as_str(),
-        column.name.as_str(),
+        &dict_store,
+        key.table(),
+        key.column(),
         available,
         column.retrain_growth,
     )? {
@@ -79,21 +84,14 @@ where
 
     let dict_id = persist_dictionary(
         conn,
-        &dict_table,
-        table.name.as_str(),
-        column.name.as_str(),
+        &dict_store,
+        key.table(),
+        key.column(),
         &dictionary,
         available,
     )?;
 
-    CURRENT_DICT_IDS.lock().insert(
-        ColumnKey::new(
-            table.schema.as_str(),
-            table.name.as_str(),
-            column.name.as_str(),
-        ),
-        dict_id,
-    );
+    CURRENT_DICT_IDS.lock().insert(key, dict_id);
 
     insert_into_caches(dict_id, &dictionary, compression_level);
 

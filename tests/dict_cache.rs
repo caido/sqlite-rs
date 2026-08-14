@@ -8,7 +8,7 @@ mod common;
 
 use crate::common::{expect_decoder, expect_encoder};
 
-const DICT_TABLE: &str = "__zstd_dicts";
+const SCHEMA: &str = "main";
 
 fn ensure_dicts_table(conn: &Connection) {
     conn.execute_batch(
@@ -74,7 +74,7 @@ fn get_encoder_not_ready_when_table_empty() {
     ensure_dicts_table(&conn);
     let mut wrapper = common::RusqliteConn::new(&conn);
 
-    match get_encoder(DICT_TABLE, DictId::new(90_001), &mut wrapper, DEFAULT_LEVEL) {
+    match get_encoder(SCHEMA, DictId::new(90_001), &mut wrapper, DEFAULT_LEVEL) {
         Err(DictError::NotReady) => {}
         Ok(_) => panic!("expected NotReady, got Ok"),
         Err(e) => panic!("expected NotReady, got Err({e})"),
@@ -87,7 +87,7 @@ fn get_decoder_not_ready_when_table_empty() {
     ensure_dicts_table(&conn);
     let mut wrapper = common::RusqliteConn::new(&conn);
 
-    match get_decoder(DICT_TABLE, DictId::new(90_002), &mut wrapper) {
+    match get_decoder(SCHEMA, DictId::new(90_002), &mut wrapper) {
         Err(DictError::NotReady) => {}
         Ok(_) => panic!("expected NotReady, got Ok"),
         Err(e) => panic!("expected NotReady, got Err({e})"),
@@ -101,8 +101,8 @@ fn get_encoder_loads_and_caches() {
     seed_dict(&conn, id, "requests_raw", "data");
     let mut wrapper = common::RusqliteConn::new(&conn);
 
-    let first = expect_encoder(get_encoder(DICT_TABLE, id, &mut wrapper, DEFAULT_LEVEL));
-    let second = expect_encoder(get_encoder(DICT_TABLE, id, &mut wrapper, DEFAULT_LEVEL));
+    let first = expect_encoder(get_encoder(SCHEMA, id, &mut wrapper, DEFAULT_LEVEL));
+    let second = expect_encoder(get_encoder(SCHEMA, id, &mut wrapper, DEFAULT_LEVEL));
 
     assert!(Arc::ptr_eq(&first, &second));
 }
@@ -114,8 +114,8 @@ fn get_decoder_loads_and_caches() {
     seed_dict(&conn, id, "requests_raw", "data");
     let mut wrapper = common::RusqliteConn::new(&conn);
 
-    let first = expect_decoder(get_decoder(DICT_TABLE, id, &mut wrapper));
-    let second = expect_decoder(get_decoder(DICT_TABLE, id, &mut wrapper));
+    let first = expect_decoder(get_decoder(SCHEMA, id, &mut wrapper));
+    let second = expect_decoder(get_decoder(SCHEMA, id, &mut wrapper));
 
     assert!(Arc::ptr_eq(&first, &second));
 }
@@ -127,8 +127,8 @@ fn get_encoder_and_decoder_roundtrip() {
     seed_dict(&conn, id, "requests_raw", "data");
     let mut wrapper = common::RusqliteConn::new(&conn);
 
-    let encoder = expect_encoder(get_encoder(DICT_TABLE, id, &mut wrapper, DEFAULT_LEVEL));
-    let decoder = expect_decoder(get_decoder(DICT_TABLE, id, &mut wrapper));
+    let encoder = expect_encoder(get_encoder(SCHEMA, id, &mut wrapper, DEFAULT_LEVEL));
+    let decoder = expect_decoder(get_decoder(SCHEMA, id, &mut wrapper));
 
     let original = b"GET /api/users/42 HTTP/1.1\r\nHost: example.com\r\n\r\n";
     let mut compressor = Compressor::with_prepared_dictionary(&encoder).unwrap();
@@ -188,32 +188,30 @@ fn get_encoder_and_decoder_load_from_schema_dict_table() {
     seed_dict_into(&conn, "raw", raw_id, "requests_raw", "data");
     seed_dict_into(&conn, "archive", archive_id, "requests_raw", "data");
 
-    let raw_table = "\"raw\".\"__zstd_dicts\"";
-    let archive_table = "\"archive\".\"__zstd_dicts\"";
     let mut wrapper = common::RusqliteConn::new(&conn);
 
-    // cold cache: wrong table must hit DB → NotReady
-    match get_encoder(raw_table, archive_id, &mut wrapper, DEFAULT_LEVEL) {
+    // cold cache: wrong schema must hit DB → NotReady
+    match get_encoder("raw", archive_id, &mut wrapper, DEFAULT_LEVEL) {
         Err(DictError::NotReady) => {}
         Ok(_) => panic!("expected NotReady from wrong table, got Ok"),
         Err(e) => panic!("expected NotReady from wrong table, got Err({e})"),
     }
-    match get_decoder(archive_table, raw_id, &mut wrapper) {
+    match get_decoder("archive", raw_id, &mut wrapper) {
         Err(DictError::NotReady) => {}
         Ok(_) => panic!("expected NotReady from wrong table, got Ok"),
         Err(e) => panic!("expected NotReady from wrong table, got Err({e})"),
     }
 
-    // correct tables → Ok
-    let raw_enc = expect_encoder(get_encoder(raw_table, raw_id, &mut wrapper, DEFAULT_LEVEL));
+    // correct schemas → Ok
+    let raw_enc = expect_encoder(get_encoder("raw", raw_id, &mut wrapper, DEFAULT_LEVEL));
     let archive_enc = expect_encoder(get_encoder(
-        archive_table,
+        "archive",
         archive_id,
         &mut wrapper,
         DEFAULT_LEVEL,
     ));
     assert!(!Arc::ptr_eq(&raw_enc, &archive_enc));
 
-    expect_decoder(get_decoder(raw_table, raw_id, &mut wrapper));
-    expect_decoder(get_decoder(archive_table, archive_id, &mut wrapper));
+    expect_decoder(get_decoder("raw", raw_id, &mut wrapper));
+    expect_decoder(get_decoder("archive", archive_id, &mut wrapper));
 }

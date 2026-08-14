@@ -6,7 +6,13 @@ use sqlite_compress::{
 
 mod common;
 use crate::common::{expect_decoder, expect_encoder};
+
+const SCHEMA: &str = "main";
 const DICT_TABLE: &str = "\"main\".\"__zstd_dicts\"";
+
+fn column(name: &str) -> ColumnKey {
+    ColumnKey::new("raw", "requests_raw", name)
+}
 
 fn seed_dict(conn: &Connection, id: DictId, table_name: &str, column_name: &str) {
     conn.execute_batch(&format!(
@@ -48,16 +54,14 @@ fn compress_decompress_roundtrip_via_cached_dict() {
 
     let mut wrapper = common::RusqliteConn::new(&conn);
     // populate both caches + CURRENT_DICT_ID
-    expect_encoder(get_encoder(DICT_TABLE, id, &mut wrapper, DEFAULT_LEVEL));
-    expect_decoder(get_decoder(DICT_TABLE, id, &mut wrapper));
+    expect_encoder(get_encoder(SCHEMA, id, &mut wrapper, DEFAULT_LEVEL));
+    expect_decoder(get_decoder(SCHEMA, id, &mut wrapper));
 
-    CURRENT_DICT_IDS
-        .lock()
-        .insert(ColumnKey::new("raw", "requests_raw", "data"), id);
+    CURRENT_DICT_IDS.lock().insert(column("data"), id);
 
     let original = b"GET /api/users/42 HTTP/1.1\r\nHost: example.com\r\n\r\n";
 
-    let compressed = compress(original, "raw", "requests_raw", "data", DEFAULT_LEVEL).unwrap();
+    let compressed = compress(original, &column("data"), DEFAULT_LEVEL).unwrap();
 
     let (header, _schema, _payload) = Header::parse(&compressed).unwrap();
 
@@ -75,7 +79,7 @@ fn compress_falls_back_to_raw_without_cache() {
     // after ensuring no encoder for that path, or reset via a fresh unused scenario)
 
     let original = b"hello world without dict";
-    let compressed = compress(original, "raw", "requests_raw", "data", DEFAULT_LEVEL).unwrap();
+    let compressed = compress(original, &column("data"), DEFAULT_LEVEL).unwrap();
     let header = u32::from_le_bytes(compressed[..4].try_into().unwrap());
 
     if header == 0 {
@@ -94,32 +98,21 @@ fn compress_uses_distinct_dict_ids_per_column() {
     seed_dict(&conn, headers_id, "requests_raw", "headers");
 
     let mut wrapper = common::RusqliteConn::new(&conn);
-    expect_encoder(get_encoder(
-        DICT_TABLE,
-        data_id,
-        &mut wrapper,
-        DEFAULT_LEVEL,
-    ));
-    expect_decoder(get_decoder(DICT_TABLE, data_id, &mut wrapper));
-    expect_encoder(get_encoder(
-        DICT_TABLE,
-        headers_id,
-        &mut wrapper,
-        DEFAULT_LEVEL,
-    ));
-    expect_decoder(get_decoder(DICT_TABLE, headers_id, &mut wrapper));
+    expect_encoder(get_encoder(SCHEMA, data_id, &mut wrapper, DEFAULT_LEVEL));
+    expect_decoder(get_decoder(SCHEMA, data_id, &mut wrapper));
+    expect_encoder(get_encoder(SCHEMA, headers_id, &mut wrapper, DEFAULT_LEVEL));
+    expect_decoder(get_decoder(SCHEMA, headers_id, &mut wrapper));
 
     {
         let mut map = CURRENT_DICT_IDS.lock();
-        map.insert(ColumnKey::new("raw", "requests_raw", "data"), data_id);
-        map.insert(ColumnKey::new("raw", "requests_raw", "headers"), headers_id);
+        map.insert(column("data"), data_id);
+        map.insert(column("headers"), headers_id);
     }
 
     let payload = b"GET /api/users/42 HTTP/1.1\r\nHost: example.com\r\n\r\n";
 
-    let compressed_data = compress(payload, "raw", "requests_raw", "data", DEFAULT_LEVEL).unwrap();
-    let compressed_headers =
-        compress(payload, "raw", "requests_raw", "headers", DEFAULT_LEVEL).unwrap();
+    let compressed_data = compress(payload, &column("data"), DEFAULT_LEVEL).unwrap();
+    let compressed_headers = compress(payload, &column("headers"), DEFAULT_LEVEL).unwrap();
 
     let (header_data, _schema, _payload) = Header::parse(&compressed_data).unwrap();
     let (header_headers, _schema, _payload) = Header::parse(&compressed_headers).unwrap();
@@ -139,17 +132,13 @@ fn compress_embeds_schema_in_header() {
     seed_dict(&conn, id, "requests_raw", "data");
 
     let mut wrapper = common::RusqliteConn::new(&conn);
-    expect_encoder(get_encoder(DICT_TABLE, id, &mut wrapper, DEFAULT_LEVEL));
+    expect_encoder(get_encoder(SCHEMA, id, &mut wrapper, DEFAULT_LEVEL));
 
-    CURRENT_DICT_IDS
-        .lock()
-        .insert(ColumnKey::new("raw", "requests_raw", "data"), id);
+    CURRENT_DICT_IDS.lock().insert(column("data"), id);
 
     let compressed = compress(
         b"GET /api/users/1 HTTP/1.1\r\n\r\n",
-        "raw",
-        "requests_raw",
-        "data",
+        &column("data"),
         DEFAULT_LEVEL,
     )
     .unwrap();

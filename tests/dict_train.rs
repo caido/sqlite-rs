@@ -454,7 +454,7 @@ fn train_all_fills_current_dict_ids_and_compress_roundtrips() {
 
     // no manual CURRENT_DICT_IDS insert — compress must use what train_all registered
     let original = b"GET /api/users/42 HTTP/1.1\r\nHost: example.com\r\n\r\n";
-    let compressed = compress(original, "raw", "requests_raw", "data", DEFAULT_LEVEL).unwrap();
+    let compressed = compress(original, &key, DEFAULT_LEVEL).unwrap();
 
     let (header, _schema, _payload) = Header::parse(&compressed).unwrap();
     assert_eq!(header.dict_id.get(), dict_ids[0].get());

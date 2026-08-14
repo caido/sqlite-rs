@@ -5,10 +5,8 @@ use crate::{
     conn::SqliteConn,
     dict::{
         errors::DictError, get_encoder, get_encoder_cached, ColumnKey, DictId, CURRENT_DICT_IDS,
-        DICT_TABLE_NAME,
     },
     functions::{errors::CodecError, header::wrap, types::Level, DEFAULT_LEVEL},
-    utils::quote_qualified,
 };
 
 fn compress_with_encoder(
@@ -37,25 +35,20 @@ fn compress_raw(
 
 pub fn compress(
     data: &[u8],
-    schema: &str,
-    table: &str,
-    column: &str,
+    column: &ColumnKey,
     level: Level,
 ) -> std::result::Result<Vec<u8>, CodecError> {
-    let id = CURRENT_DICT_IDS
-        .lock()
-        .get(&ColumnKey::new(schema, table, column))
-        .copied();
+    let id = CURRENT_DICT_IDS.lock().get(column).copied();
 
     if let Some(id) = id {
         if id.get() != 0 {
             if let Some(encoder) = get_encoder_cached(id) {
-                return compress_with_encoder(id, schema, data, &encoder);
+                return compress_with_encoder(id, column.schema(), data, &encoder);
             }
         }
     }
 
-    compress_raw(schema, data, level)
+    compress_raw(column.schema(), data, level)
 }
 
 pub fn sqlite_compress(context: *mut sqlite3_context, values: &[*mut sqlite3_value]) -> Result<()> {
@@ -63,22 +56,19 @@ pub fn sqlite_compress(context: *mut sqlite3_context, values: &[*mut sqlite3_val
     let schema = api::value_text(&values[1])?;
     let table = api::value_text(&values[2])?;
     let column = api::value_text(&values[3])?;
-    let dict_table = quote_qualified(schema, DICT_TABLE_NAME);
+    let key = ColumnKey::new(schema, table, column);
 
-    let id = CURRENT_DICT_IDS
-        .lock()
-        .get(&ColumnKey::new(schema, table, column))
-        .copied();
+    let id = CURRENT_DICT_IDS.lock().get(&key).copied();
 
     let mut conn = SqliteConn::from_context(context);
 
     let compressed = match id.filter(|id| id.get() != 0) {
-        Some(id) => match get_encoder(&dict_table, id, &mut conn, DEFAULT_LEVEL) {
-            Ok(encoder) => compress_with_encoder(id, schema, data, &encoder)?,
-            Err(DictError::NotReady) => compress_raw(schema, data, DEFAULT_LEVEL)?,
+        Some(id) => match get_encoder(key.schema(), id, &mut conn, DEFAULT_LEVEL) {
+            Ok(encoder) => compress_with_encoder(id, key.schema(), data, &encoder)?,
+            Err(DictError::NotReady) => compress_raw(key.schema(), data, DEFAULT_LEVEL)?,
             Err(e) => return Err(CodecError::DictError(e).into()),
         },
-        None => compress_raw(schema, data, DEFAULT_LEVEL)?,
+        None => compress_raw(key.schema(), data, DEFAULT_LEVEL)?,
     };
 
     api::result_blob(context, &compressed);
