@@ -1,9 +1,10 @@
 use crate::{
+    decompress,
     dict::{
         dict_table, insert_into_caches,
         types::{ColumnKey, DictId},
     },
-    functions::Level,
+    functions::{CodecError, Level},
     setup::{SetupConfig, SetupConnection, SetupError, SqlIdent},
     utils::quote_literal,
     SetupColumn, SetupTable, CURRENT_DICT_IDS,
@@ -95,6 +96,20 @@ where
     CURRENT_DICT_IDS.lock().insert(key, dict_id);
 
     Ok(Some(dict_id))
+}
+
+/// Returns plaintext suitable for dictionary training.
+/// Compressed blobs (sqlite-compress format) are decompressed;
+/// already-plain blobs are returned as-is.
+fn sample_for_training(blob: &[u8]) -> Result<Vec<u8>, SetupError> {
+    match decompress(blob) {
+        Ok(decoded) => Ok(decoded),
+        // Not our format → treat as already plaintext (first train)
+        Err(CodecError::MalformedHeader) | Err(CodecError::UnknownCodec(_)) => Ok(blob.to_vec()),
+        Err(e) => Err(SetupError::DictTrain(format!(
+            "failed to decode training sample: {e}"
+        ))),
+    }
 }
 
 /// Validate the config is valid.
@@ -192,12 +207,23 @@ where
      LIMIT {max_samples}"
     );
 
+    let mut sample_err: Option<SetupError> = None;
+
     conn.for_each_blob(&sql, |blob| {
-        corpus.extend_from_slice(blob);
-        sizes.push(blob.len());
+        match sample_for_training(blob) {
+            Ok(sample) => {
+                corpus.extend_from_slice(&sample);
+                sizes.push(sample.len());
+            }
+            Err(e) => sample_err = Some(e),
+        }
         Ok(())
     })
     .map_err(SetupError::from_conn)?;
+
+    if let Some(err) = sample_err {
+        return Err(err);
+    }
 
     if sizes.is_empty() {
         return Err(SetupError::DictTrain(
