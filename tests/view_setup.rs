@@ -10,7 +10,7 @@ use common::{DEFAULT_MAX_SAMPLES, DEFAULT_MIN_SAMPLES};
 fn setup_skips_existing_view() {
     let conn = Connection::open_in_memory().unwrap();
 
-    let view_name = "__zstd_decoded_requests_raw_data";
+    let view_name = "__zstd_decoded_requests_raw";
 
     conn.execute_batch(&format!(
         r#"
@@ -76,7 +76,7 @@ fn setup_creates_view() {
     let mut wrapper = common::RusqliteConn::new(&conn);
     setup(&mut wrapper, &config).unwrap();
 
-    let view_name = "__zstd_decoded_requests_raw_data";
+    let view_name = "__zstd_decoded_requests_raw";
     let count: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM raw.sqlite_master WHERE type = 'view' AND name = ?1",
@@ -89,7 +89,7 @@ fn setup_creates_view() {
 }
 
 #[test]
-fn setup_creates_view_per_column() {
+fn setup_creates_one_view_per_table() {
     let conn = Connection::open_in_memory().unwrap();
     conn.execute_batch(
         r#"
@@ -136,13 +136,7 @@ fn setup_creates_view_per_column() {
         .collect::<Result<_, _>>()
         .unwrap();
 
-    assert_eq!(
-        names,
-        vec![
-            "__zstd_decoded_requests_raw_data".to_string(),
-            "__zstd_decoded_requests_raw_headers".to_string(),
-        ]
-    );
+    assert_eq!(names, vec!["__zstd_decoded_requests_raw".to_string()]);
 }
 
 #[test]

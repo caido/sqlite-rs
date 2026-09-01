@@ -186,10 +186,10 @@ where
     let mut sizes = Vec::new();
 
     let sql = format!(
-        "SELECT {column_name} FROM {table_name} \
-                 WHERE {column_name} IS NOT NULL AND length({column_name}) > 0 \
-                 ORDER BY rowid DESC \
-                 LIMIT {max_samples}"
+        "SELECT {column_name} AS value FROM {table_name} \
+     WHERE {column_name} IS NOT NULL AND length({column_name}) > 0 \
+     ORDER BY rowid DESC \
+     LIMIT {max_samples}"
     );
 
     conn.for_each_blob(&sql, |blob| {

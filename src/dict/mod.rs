@@ -45,7 +45,7 @@ fn load_raw_dict<C: DictStore>(
     let table = dict_table(schema);
     let rows = conn
         .query_blobs(&format!(
-            "SELECT dict FROM {table} WHERE id = {}",
+            "SELECT dict AS value FROM {table} WHERE id = {}",
             dict_id.get()
         ))
         .map_err(|e| DictError::Connection(e.into()))?;

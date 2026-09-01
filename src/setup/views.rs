@@ -3,7 +3,7 @@ use crate::{
         config::{ColumnName, SchemaName, TableName},
         SetupConfig, SetupConnection, SetupError, SqlIdent,
     },
-    utils::quote_literal,
+    utils::{quote_identifier, quote_literal},
     SetupTable,
 };
 
@@ -61,24 +61,49 @@ where
     Ok(true)
 }
 
-///    A view is created for each column that targets the table in [`SetupConfig`].
-fn ensure_view_exist<C>(
+fn table_column_names<C>(
     conn: &mut C,
-    schema_qualified_name: &str,
-    table: &SetupTable,
-    column: &ColumnName,
-) -> Result<(), SetupError>
+    schema: &SchemaName,
+    table: &TableName,
+) -> Result<Vec<String>, SetupError>
 where
     C: SetupConnection,
 {
-    let column_view_name = column.view_name(&table.name);
-    let qualified = table.column_as_qualified_view_name(column);
+    conn.query_strings(&format!(
+        "SELECT name AS value FROM pragma_table_info({table}, {schema}) ORDER BY cid"
+    ))
+    .map_err(SetupError::from_conn)
+}
 
+fn build_decoded_select_list(
+    table_columns: &[String],
+    compressed: &std::collections::HashSet<&str>,
+) -> String {
+    table_columns
+        .iter()
+        .map(|col| {
+            let quoted = quote_identifier(col);
+            if compressed.contains(col.as_str()) {
+                format!("decompress({quoted}) AS {quoted}")
+            } else {
+                quoted
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn ensure_table_view_exists<C>(conn: &mut C, table: &SetupTable) -> Result<(), SetupError>
+where
+    C: SetupConnection,
+{
+    let view_name = table.name.decoded_view_name();
+    let schema_qualified = table.as_qualified_schema_name();
     let count = conn
         .query_i64(&format!(
-            "SELECT COUNT(*) FROM {schema_qualified_name}.sqlite_master \
-     WHERE type = 'view' AND name = {}",
-            quote_literal(column_view_name.as_str())
+            "SELECT COUNT(*) FROM {schema_qualified}.sqlite_master \
+             WHERE type = 'view' AND name = {}",
+            quote_literal(&view_name)
         ))
         .map_err(SetupError::from_conn)?;
 
@@ -86,9 +111,15 @@ where
         return Ok(());
     }
 
+    let table_columns = table_column_names(conn, &table.schema, &table.name)?;
+    let compressed = table.compressed_column_names();
+    let select_list = build_decoded_select_list(&table_columns, &compressed);
+    let qualified_view = table.as_qualified_decoded_view_name();
+
     conn.batch_execute(&format!(
-        "CREATE VIEW IF NOT EXISTS {qualified} AS SELECT * FROM {}",
-        table.as_qualified_name()
+        "CREATE VIEW IF NOT EXISTS {qualified_view} AS \
+         SELECT {select_list} FROM {}",
+        table.as_qualified_table_name()
     ))
     .map_err(SetupError::from_conn)?;
 
@@ -106,11 +137,13 @@ where
 {
     for table in config.tables.iter() {
         ensure_table_exists(conn, &table.schema, &table.name)?;
-        let schema = table.as_qualified_schema_name();
 
         for column in &table.columns {
             ensure_column_exist(conn, &table.name, &table.schema, &column.name)?;
-            ensure_view_exist(conn, &schema, table, &column.name)?;
+        }
+
+        if !table.columns.is_empty() {
+            ensure_table_view_exists(conn, table)?;
         }
     }
 

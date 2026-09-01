@@ -40,6 +40,10 @@ impl TableName {
     pub fn new(name: &str) -> Self {
         Self(name.to_string())
     }
+
+    pub fn decoded_view_name(&self) -> String {
+        format!("{}_{}", VIEW_SUFFIX, self.as_str())
+    }
 }
 
 impl SqlIdent for TableName {
@@ -128,6 +132,14 @@ pub struct SetupTable {
 }
 
 impl SetupTable {
+    pub fn as_qualified_decoded_view_name(&self) -> String {
+        quote_qualified(self.schema.as_str(), &self.name.decoded_view_name())
+    }
+
+    pub fn compressed_column_names(&self) -> std::collections::HashSet<&str> {
+        self.columns.iter().map(|c| c.name.as_str()).collect()
+    }
+
     pub fn as_qualified_name(&self) -> String {
         quote_qualified(self.schema.as_str(), self.name.as_str())
     }
@@ -154,6 +166,7 @@ pub trait DictStore {
 }
 
 pub trait SetupConnection: DictStore {
+    fn query_strings(&mut self, sql: &str) -> Result<Vec<String>, Self::Error>;
     fn batch_execute(&mut self, sql: &str) -> Result<(), Self::Error>;
     fn query_i64(&mut self, sql: &str) -> Result<i64, Self::Error>;
     fn execute_blob(&mut self, sql: &str, blob: &[u8]) -> Result<i64, Self::Error>;
