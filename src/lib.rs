@@ -35,5 +35,13 @@ pub fn sqlite3_compress_init(db: *mut sqlite3) -> Result<()> {
         FunctionFlags::DETERMINISTIC,
     )?;
 
+    define_scalar_function(
+        db,
+        "decompress",
+        2,
+        functions::sqlite_decompress,
+        FunctionFlags::DETERMINISTIC,
+    )?;
+
     Ok(())
 }

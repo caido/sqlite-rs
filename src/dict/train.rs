@@ -77,6 +77,7 @@ where
 
     let dictionary = build_dictionary(
         conn,
+        key.schema(),
         &table_name,
         &column_name,
         column.max_samples,
@@ -101,11 +102,13 @@ where
 /// Returns plaintext suitable for dictionary training.
 /// Compressed blobs (sqlite-compress format) are decompressed;
 /// already-plain blobs are returned as-is.
-fn sample_for_training(blob: &[u8]) -> Result<Vec<u8>, SetupError> {
-    match decompress(blob) {
+fn sample_for_training(blob: &[u8], schema: &str) -> Result<Vec<u8>, SetupError> {
+    match decompress(blob, Some(schema)) {
         Ok(decoded) => Ok(decoded),
         // Not our format → treat as already plaintext (first train)
-        Err(CodecError::MalformedHeader) | Err(CodecError::UnknownCodec(_)) => Ok(blob.to_vec()),
+        Err(CodecError::MalformedHeader)
+        | Err(CodecError::UnknownCodec(_))
+        | Err(CodecError::UnknownVersion(_)) => Ok(blob.to_vec()),
         Err(e) => Err(SetupError::DictTrain(format!(
             "failed to decode training sample: {e}"
         ))),
@@ -189,6 +192,7 @@ where
 /// Using stream approach to avoid loading all the samples into memory.
 fn build_dictionary<C>(
     conn: &mut C,
+    schema: &str,
     table_name: &str,
     column_name: &str,
     max_samples: usize,
@@ -210,7 +214,7 @@ where
     let mut sample_err: Option<SetupError> = None;
 
     conn.for_each_blob(&sql, |blob| {
-        match sample_for_training(blob) {
+        match sample_for_training(blob, schema) {
             Ok(sample) => {
                 corpus.extend_from_slice(&sample);
                 sizes.push(sample.len());

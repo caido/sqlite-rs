@@ -48,9 +48,11 @@ fn train_persists_a_new_dictionary() {
     let dict_ids = train_all(&mut wrapper, &config, 1024).unwrap();
 
     let (stored_id, dict_size): (u32, usize) = conn
-        .query_row("SELECT id, length(dict) FROM raw.__zstd_dicts", [], |row| {
-            Ok((row.get(0)?, row.get(1)?))
-        })
+        .query_row(
+            "SELECT id, length(dict) FROM raw.__compress_dicts",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
         .unwrap();
 
     assert_eq!(dict_ids.len(), 1);
@@ -110,7 +112,7 @@ fn train_persists_dictionary_per_column() {
 
     let rows: Vec<(String, String, u32)> = conn
         .prepare(
-            "SELECT table_name, column_name, id FROM raw.__zstd_dicts \
+            "SELECT table_name, column_name, id FROM raw.__compress_dicts \
              ORDER BY column_name",
         )
         .unwrap()
@@ -185,7 +187,7 @@ fn train_skips_column_without_enough_samples() {
     assert_eq!(dict_ids.len(), 1);
 
     let rows: Vec<(String, String)> = conn
-        .prepare("SELECT table_name, column_name FROM raw.__zstd_dicts")
+        .prepare("SELECT table_name, column_name FROM raw.__compress_dicts")
         .unwrap()
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
         .unwrap()
@@ -261,7 +263,7 @@ fn train_by_column_persists_one_column() {
     assert_eq!(dict_id.unwrap().get(), 1);
 
     let rows: Vec<(String, String)> = conn
-        .prepare("SELECT table_name, column_name FROM raw.__zstd_dicts")
+        .prepare("SELECT table_name, column_name FROM raw.__compress_dicts")
         .unwrap()
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
         .unwrap()
@@ -329,7 +331,7 @@ fn train_stores_row_count() {
     let dict_id = dict_ids[0];
     let (stored_id, row_count): (u32, i64) = conn
         .query_row(
-            "SELECT id, row_count FROM raw.__zstd_dicts WHERE id = ?1",
+            "SELECT id, row_count FROM raw.__compress_dicts WHERE id = ?1",
             [dict_id.get()],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
@@ -362,7 +364,7 @@ fn train_skips_when_growth_below_threshold() {
     assert!(second.is_empty());
 
     let count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM raw.__zstd_dicts", [], |row| {
+        .query_row("SELECT COUNT(*) FROM raw.__compress_dicts", [], |row| {
             row.get(0)
         })
         .unwrap();
@@ -384,7 +386,7 @@ fn train_retrains_when_growth_reaches_threshold() {
 
     // Simulate a previous train with low row_count for this column
     conn.execute(
-        "INSERT INTO raw.__zstd_dicts \
+        "INSERT INTO raw.__compress_dicts \
          (id, dict, trained_at, table_name, column_name, row_count) \
          VALUES (1, X'00', strftime('%s','now'), 'requests_raw', 'data', ?1)",
         [prior_row_count],
@@ -397,7 +399,7 @@ fn train_retrains_when_growth_reaches_threshold() {
 
     let row_count: i64 = conn
         .query_row(
-            "SELECT row_count FROM raw.__zstd_dicts WHERE id = ?1",
+            "SELECT row_count FROM raw.__compress_dicts WHERE id = ?1",
             [dict_ids[0].get()],
             |row| row.get(0),
         )
@@ -456,7 +458,7 @@ fn train_all_fills_current_dict_ids_and_compress_roundtrips() {
     let original = b"GET /api/users/42 HTTP/1.1\r\nHost: example.com\r\n\r\n";
     let compressed = compress(original, &key, DEFAULT_LEVEL).unwrap();
 
-    let (header, _schema, _payload) = Header::parse(&compressed).unwrap();
+    let (header, _payload) = Header::parse(&compressed).unwrap();
     assert_eq!(header.dict_id.get(), dict_ids[0].get());
-    assert_eq!(decompress(&compressed).unwrap(), original);
+    assert_eq!(decompress(&compressed, Some("raw")).unwrap(), original);
 }

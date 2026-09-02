@@ -27,8 +27,8 @@ impl Display for DictId {
 /// Cache key for a prepared dictionary: ids are unique per schema, not globally.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct DictKey {
-    schema: String,
-    id: DictId,
+    pub schema: String,
+    pub id: DictId,
 }
 
 impl DictKey {

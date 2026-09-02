@@ -11,7 +11,6 @@ use crate::{
 
 fn compress_with_encoder(
     dict_id: DictId,
-    schema: &str,
     data: &[u8],
     encoder: &zstd::dict::EncoderDictionary<'static>,
 ) -> std::result::Result<Vec<u8>, CodecError> {
@@ -20,17 +19,13 @@ fn compress_with_encoder(
     let compressed = compressor
         .compress(data)
         .map_err(CodecError::CompressionFailed)?;
-    wrap(dict_id, schema, data.len(), compressed)
+    wrap(dict_id, data.len(), compressed)
 }
 
-fn compress_raw(
-    schema: &str,
-    data: &[u8],
-    level: Level,
-) -> std::result::Result<Vec<u8>, CodecError> {
+fn compress_raw(data: &[u8], level: Level) -> std::result::Result<Vec<u8>, CodecError> {
     let compressed =
         zstd::stream::encode_all(data, level.get()).map_err(CodecError::CompressionFailed)?;
-    wrap(DictId::from(0), schema, data.len(), compressed)
+    wrap(DictId::from(0), data.len(), compressed)
 }
 
 pub fn compress(
@@ -43,12 +38,12 @@ pub fn compress(
     if let Some(id) = id {
         if id.get() != 0 {
             if let Some(encoder) = get_encoder_cached(column.schema(), id) {
-                return compress_with_encoder(id, column.schema(), data, &encoder);
+                return compress_with_encoder(id, data, &encoder);
             }
         }
     }
 
-    compress_raw(column.schema(), data, level)
+    compress_raw(data, level)
 }
 
 pub fn sqlite_compress(context: *mut sqlite3_context, values: &[*mut sqlite3_value]) -> Result<()> {
@@ -64,11 +59,11 @@ pub fn sqlite_compress(context: *mut sqlite3_context, values: &[*mut sqlite3_val
 
     let compressed = match id.filter(|id| id.get() != 0) {
         Some(id) => match get_encoder(key.schema(), id, &mut conn, DEFAULT_LEVEL) {
-            Ok(encoder) => compress_with_encoder(id, key.schema(), data, &encoder)?,
-            Err(DictError::NotReady) => compress_raw(key.schema(), data, DEFAULT_LEVEL)?,
+            Ok(encoder) => compress_with_encoder(id, data, &encoder)?,
+            Err(DictError::NotReady) => compress_raw(data, DEFAULT_LEVEL)?,
             Err(e) => return Err(CodecError::DictError(e).into()),
         },
-        None => compress_raw(key.schema(), data, DEFAULT_LEVEL)?,
+        None => compress_raw(data, DEFAULT_LEVEL)?,
     };
 
     api::result_blob(context, &compressed);

@@ -24,6 +24,10 @@ pub enum CodecError {
     PayloadTooLarge,
     #[error("unknown codec: {0}")]
     UnknownCodec(u8),
+    #[error("schema required")]
+    SchemaRequired,
+    #[error("unknown version: {0}")]
+    UnknownVersion(u8),
 }
 
 impl From<CodecError> for sqlite_loadable::Error {

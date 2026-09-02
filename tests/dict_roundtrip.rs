@@ -16,7 +16,7 @@ fn insert_trained_dict(
 ) -> Vec<u8> {
     conn.execute_batch(
         r#"
-        CREATE TABLE IF NOT EXISTS __zstd_dicts (
+        CREATE TABLE IF NOT EXISTS __compress_dicts (
             id INTEGER PRIMARY KEY,
             dict BLOB NOT NULL,
             trained_at INTEGER NOT NULL,
@@ -34,7 +34,7 @@ fn insert_trained_dict(
     let dict = zstd::dict::from_samples(&sample_refs, 1024).unwrap();
 
     conn.execute(
-        "INSERT OR REPLACE INTO __zstd_dicts (id, dict, trained_at, table_name, column_name) VALUES (?1, ?2, strftime('%s','now'), ?3, ?4)",
+        "INSERT OR REPLACE INTO __compress_dicts (id, dict, trained_at, table_name, column_name) VALUES (?1, ?2, strftime('%s','now'), ?3, ?4)",
         rusqlite::params![id.get(), dict, table_name, column_name],
     )
     .unwrap();

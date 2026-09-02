@@ -36,7 +36,7 @@ fn setup_table_does_not_exist() {
 
     let count: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM raw.sqlite_master WHERE type='table' AND name='__zstd_dicts'",
+            "SELECT COUNT(*) FROM raw.sqlite_master WHERE type='table' AND name='__compress_dicts'",
             [],
             |row| row.get(0),
         )
@@ -51,7 +51,7 @@ fn setup_table_already_exists() {
         r#"
          ATTACH DATABASE ':memory:' AS raw;
         CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
-        CREATE TABLE raw.__zstd_dicts (id INTEGER PRIMARY KEY, dict BLOB NOT NULL, trained_at INTEGER NOT NULL, table_name TEXT NOT NULL, column_name TEXT NOT NULL);
+        CREATE TABLE raw.__compress_dicts (id INTEGER PRIMARY KEY, dict BLOB NOT NULL, trained_at INTEGER NOT NULL, table_name TEXT NOT NULL, column_name TEXT NOT NULL);
         "#,
     )
     .unwrap();
@@ -75,7 +75,7 @@ fn setup_table_already_exists() {
 
     let count: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM raw.sqlite_master WHERE type='table' AND name='__zstd_dicts'",
+            "SELECT COUNT(*) FROM raw.sqlite_master WHERE type='table' AND name='__compress_dicts'",
             [],
             |row| row.get(0),
         )
@@ -129,12 +129,12 @@ fn setup_creates_dict_table_per_schema() {
             .query_row(
                 &format!(
                     "SELECT COUNT(*) FROM {schema}.sqlite_master \
-                     WHERE type = 'table' AND name = '__zstd_dicts'"
+                     WHERE type = 'table' AND name = '__compress_dicts'"
                 ),
                 [],
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(count, 1, "__zstd_dicts missing in schema {schema}");
+        assert_eq!(count, 1, "__compress_dicts missing in schema {schema}");
     }
 }

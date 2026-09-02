@@ -27,12 +27,13 @@ fn decompress_raw(
     zstd::bulk::decompress(payload, uncompressed_len).map_err(CodecError::DecompressionFailed)
 }
 
-pub fn decompress(blob: &[u8]) -> std::result::Result<Vec<u8>, CodecError> {
-    let (header, schema, payload) = Header::parse(blob)?;
+pub fn decompress(blob: &[u8], schema: Option<&str>) -> std::result::Result<Vec<u8>, CodecError> {
+    let (header, payload) = Header::parse(blob)?;
     let dict_id = DictId::from(header.dict_id.get());
     let len = header.uncompressed_len.get() as usize;
 
     if dict_id.get() != 0 {
+        let schema = schema.ok_or(CodecError::SchemaRequired)?;
         if let Some(decoder) = get_decoder_cached(schema, dict_id) {
             return decompress_with_decoder(payload, &decoder, len)
                 .map_err(CodecError::DecompressionFailed);
@@ -45,18 +46,24 @@ pub fn sqlite_decompress(
     context: *mut sqlite3_context,
     values: &[*mut sqlite3_value],
 ) -> Result<()> {
-    let value = values
-        .first()
-        .ok_or(CodecError::DecompressionRequiresOneArgument)?;
+    let blob = match values.first() {
+        Some(v) => api::value_blob(v),
+        None => return Err(CodecError::DecompressionRequiresOneArgument.into()),
+    };
 
-    let blob = api::value_blob(value);
-    let (header, schema, payload) = Header::parse(blob)?;
-    let mut conn = SqliteConn::from_context(context);
+    let schema = match values.get(1) {
+        Some(v) => Some(api::value_text(v)?),
+        None => None,
+    };
+
+    let (header, payload) = Header::parse(blob)?;
 
     let dict_id = DictId::from(header.dict_id.get());
     let len = header.uncompressed_len.get() as usize;
 
     let decompressed = if dict_id.get() != 0 {
+        let schema = schema.ok_or(CodecError::SchemaRequired)?;
+        let mut conn = SqliteConn::from_context(context);
         match get_decoder(schema, dict_id, &mut conn) {
             Ok(decoder) => decompress_with_decoder(payload, &decoder, len)
                 .map_err(CodecError::DecompressionFailed)?,

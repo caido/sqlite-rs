@@ -21,7 +21,7 @@ mod types;
 pub use train::{train_all, train_by_column};
 pub use types::{ColumnKey, DictId, DictKey};
 
-pub static DICT_TABLE_NAME: &str = "__zstd_dicts";
+pub static DICT_TABLE_NAME: &str = "__compress_dicts";
 
 pub fn dict_table(schema: &str) -> String {
     quote_qualified(schema, DICT_TABLE_NAME)
@@ -37,16 +37,12 @@ pub static CURRENT_DICT_IDS: LazyLock<Mutex<HashMap<ColumnKey, DictId>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Load the raw dictionary from the database.
-fn load_raw_dict<C: DictStore>(
-    schema: &str,
-    dict_id: DictId,
-    conn: &mut C,
-) -> Result<Vec<u8>, DictError> {
-    let table = dict_table(schema);
+fn load_raw_dict<C: DictStore>(dict_key: &DictKey, conn: &mut C) -> Result<Vec<u8>, DictError> {
+    let table = dict_table(&dict_key.schema);
     let rows = conn
         .query_blobs(&format!(
             "SELECT dict AS value FROM {table} WHERE id = {}",
-            dict_id.get()
+            dict_key.id.get()
         ))
         .map_err(|e| DictError::Connection(e.into()))?;
 
@@ -54,7 +50,9 @@ fn load_raw_dict<C: DictStore>(
         return Err(DictError::NotReady);
     }
 
-    rows.into_iter().next().ok_or(DictError::NotFound(dict_id))
+    rows.into_iter()
+        .next()
+        .ok_or(DictError::NotFound(dict_key.id))
 }
 
 pub fn get_encoder_cached(
@@ -93,7 +91,7 @@ where
         return Ok(d.clone());
     }
 
-    let raw = load_raw_dict(schema, dict_id, conn)?;
+    let raw = load_raw_dict(&key, conn)?;
     let encoder = Arc::new(EncoderDictionary::copy(&raw, level.get()));
 
     {
@@ -122,7 +120,7 @@ where
         return Ok(d.clone());
     }
 
-    let raw = load_raw_dict(schema, dict_id, conn)?;
+    let raw = load_raw_dict(&key, conn)?;
     let decoder = Arc::new(DecoderDictionary::copy(&raw));
 
     {

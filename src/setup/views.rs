@@ -78,13 +78,15 @@ where
 fn build_decoded_select_list(
     table_columns: &[String],
     compressed: &std::collections::HashSet<&str>,
+    schema: &str,
 ) -> String {
+    let schema = quote_literal(schema);
     table_columns
         .iter()
         .map(|col| {
             let quoted = quote_identifier(col);
             if compressed.contains(col.as_str()) {
-                format!("decompress({quoted}) AS {quoted}")
+                format!("decompress({quoted}, {schema}) AS {quoted}")
             } else {
                 quoted
             }
@@ -113,7 +115,7 @@ where
 
     let table_columns = table_column_names(conn, &table.schema, &table.name)?;
     let compressed = table.compressed_column_names();
-    let select_list = build_decoded_select_list(&table_columns, &compressed);
+    let select_list = build_decoded_select_list(&table_columns, &compressed, table.schema.as_str());
     let qualified_view = table.as_qualified_decoded_view_name();
 
     conn.batch_execute(&format!(

@@ -13,7 +13,7 @@ const SCHEMA: &str = "main";
 fn ensure_dicts_table(conn: &Connection) {
     conn.execute_batch(
         r#"
-        CREATE TABLE IF NOT EXISTS __zstd_dicts (
+        CREATE TABLE IF NOT EXISTS __compress_dicts (
             id INTEGER PRIMARY KEY,
             dict BLOB NOT NULL,
             trained_at INTEGER NOT NULL,
@@ -35,7 +35,7 @@ fn seed_dict(conn: &Connection, id: DictId, table_name: &str, column_name: &str)
     let dict = zstd::dict::from_samples(&sample_refs, 1024).unwrap();
 
     conn.execute(
-        "INSERT OR REPLACE INTO __zstd_dicts (id, dict, trained_at, table_name, column_name) VALUES (?1, ?2, strftime('%s','now'), ?3, ?4)",
+        "INSERT OR REPLACE INTO __compress_dicts (id, dict, trained_at, table_name, column_name) VALUES (?1, ?2, strftime('%s','now'), ?3, ?4)",
         rusqlite::params![id.get(), dict, table_name, column_name],
     )
     .unwrap();
@@ -59,7 +59,7 @@ fn seed_dict_into(
 
     conn.execute(
         &format!(
-            "INSERT OR REPLACE INTO \"{schema}\".\"__zstd_dicts\" \
+            "INSERT OR REPLACE INTO \"{schema}\".\"__compress_dicts\" \
              (id, dict, trained_at, table_name, column_name) \
              VALUES (?1, ?2, strftime('%s','now'), ?3, ?4)"
         ),
@@ -150,7 +150,9 @@ fn query_blobs_returns_seeded_dict() {
     let mut wrapper = common::RusqliteConn::new(&conn);
 
     let rows = wrapper
-        .query_blobs(&format!("SELECT dict FROM __zstd_dicts WHERE id = {id}"))
+        .query_blobs(&format!(
+            "SELECT dict FROM __compress_dicts WHERE id = {id}"
+        ))
         .unwrap();
     assert_eq!(rows.len(), 1);
     assert!(!rows[0].is_empty());
@@ -164,14 +166,14 @@ fn get_encoder_and_decoder_isolate_same_id_across_schemas() {
         ATTACH DATABASE ':memory:' AS raw;
         ATTACH DATABASE ':memory:' AS archive;
 
-        CREATE TABLE raw.__zstd_dicts (
+        CREATE TABLE raw.__compress_dicts (
             id INTEGER PRIMARY KEY,
             dict BLOB NOT NULL,
             trained_at INTEGER NOT NULL,
             table_name TEXT NOT NULL,
             column_name TEXT NOT NULL
         );
-        CREATE TABLE archive.__zstd_dicts (
+        CREATE TABLE archive.__compress_dicts (
             id INTEGER PRIMARY KEY,
             dict BLOB NOT NULL,
             trained_at INTEGER NOT NULL,
