@@ -5,6 +5,11 @@ use sqlite_compress::{DictError, DictStore, SetupConnection};
 use zstd::dict::{DecoderDictionary, EncoderDictionary};
 
 #[allow(dead_code)]
+pub const DEFAULT_MIN_SAMPLES: usize = 1000;
+#[allow(dead_code)]
+pub const DEFAULT_MAX_SAMPLES: usize = 10000;
+
+#[allow(dead_code)]
 pub fn expect_encoder(
     result: Result<Arc<EncoderDictionary<'static>>, DictError>,
 ) -> Arc<EncoderDictionary<'static>> {
@@ -42,6 +47,12 @@ impl DictStore for RusqliteConn<'_> {
 }
 
 impl SetupConnection for RusqliteConn<'_> {
+    fn query_strings(&mut self, sql: &str) -> Result<Vec<String>, Self::Error> {
+        let mut stmt = self.0.prepare(sql)?;
+        let rows = stmt.query_map([], |row| row.get(0))?;
+        rows.collect()
+    }
+
     fn batch_execute(&mut self, sql: &str) -> std::result::Result<(), Self::Error> {
         self.0.execute_batch(sql)
     }

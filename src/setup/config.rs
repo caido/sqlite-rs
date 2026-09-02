@@ -40,6 +40,10 @@ impl TableName {
     pub fn new(name: &str) -> Self {
         Self(name.to_string())
     }
+
+    pub fn decoded_view_name(&self) -> String {
+        format!("{}_{}", VIEW_SUFFIX, self.as_str())
+    }
 }
 
 impl SqlIdent for TableName {
@@ -55,11 +59,34 @@ impl Display for TableName {
 }
 
 #[derive(Debug, Clone)]
+pub struct SetupColumn {
+    pub name: ColumnName,
+    pub retrain_growth: usize,
+    pub min_samples: usize,
+    pub max_samples: usize,
+}
+
+impl SetupColumn {
+    pub fn new(name: &str, retrain_growth: usize, min_samples: usize, max_samples: usize) -> Self {
+        Self {
+            name: ColumnName::new(name),
+            retrain_growth,
+            min_samples,
+            max_samples,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct ColumnName(String);
 
 impl ColumnName {
     pub fn new(name: &str) -> Self {
         Self(name.to_string())
+    }
+
+    pub fn view_name(&self, table_name: &TableName) -> String {
+        format!("{}_{}_{}", VIEW_SUFFIX, table_name.as_str(), self.as_str())
     }
 }
 
@@ -87,17 +114,32 @@ pub trait SqlIdent {
 pub struct SetupConfig {
     pub tables: Vec<SetupTable>,
     pub compression_level: Level,
-    pub retrain_growth: usize,
+}
+
+impl SetupConfig {
+    pub fn iter_columns(&self) -> impl Iterator<Item = (&SetupTable, &SetupColumn)> {
+        self.tables
+            .iter()
+            .flat_map(|table| table.columns.iter().map(move |column| (table, column)))
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct SetupTable {
     pub name: TableName,
     pub schema: SchemaName,
-    pub columns: Vec<ColumnName>,
+    pub columns: Vec<SetupColumn>,
 }
 
 impl SetupTable {
+    pub fn as_qualified_decoded_view_name(&self) -> String {
+        quote_qualified(self.schema.as_str(), &self.name.decoded_view_name())
+    }
+
+    pub fn compressed_column_names(&self) -> std::collections::HashSet<&str> {
+        self.columns.iter().map(|c| c.name.as_str()).collect()
+    }
+
     pub fn as_qualified_name(&self) -> String {
         quote_qualified(self.schema.as_str(), self.name.as_str())
     }
@@ -110,12 +152,11 @@ impl SetupTable {
         self.name.quote()
     }
 
-    pub fn view_name(&self) -> String {
-        format!("{}{}", self.name.as_str(), VIEW_SUFFIX)
-    }
-
-    pub fn as_qualified_view_name(&self) -> String {
-        quote_qualified(self.schema.as_str(), &self.view_name())
+    pub fn column_as_qualified_view_name(&self, column_name: &ColumnName) -> String {
+        quote_qualified(
+            self.schema.as_str(),
+            column_name.view_name(&self.name).as_str(),
+        )
     }
 }
 
@@ -125,6 +166,7 @@ pub trait DictStore {
 }
 
 pub trait SetupConnection: DictStore {
+    fn query_strings(&mut self, sql: &str) -> Result<Vec<String>, Self::Error>;
     fn batch_execute(&mut self, sql: &str) -> Result<(), Self::Error>;
     fn query_i64(&mut self, sql: &str) -> Result<i64, Self::Error>;
     fn execute_blob(&mut self, sql: &str, blob: &[u8]) -> Result<i64, Self::Error>;

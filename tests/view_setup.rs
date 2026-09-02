@@ -1,34 +1,51 @@
 use rusqlite::Connection;
 use sqlite_compress::{
-    setup, ColumnName, SchemaName, SetupConfig, SetupError, SetupTable, TableName, DEFAULT_LEVEL,
+    setup, SchemaName, SetupColumn, SetupConfig, SetupError, SetupTable, TableName, DEFAULT_LEVEL,
     DEFAULT_RETRAIN_GROWTH,
 };
 mod common;
+use common::{DEFAULT_MAX_SAMPLES, DEFAULT_MIN_SAMPLES};
 
 #[test]
 fn setup_skips_existing_view() {
     let conn = Connection::open_in_memory().unwrap();
-    conn.execute_batch(
+
+    let view_name = "__zstd_decoded_requests_raw";
+
+    conn.execute_batch(&format!(
         r#"
-         ATTACH DATABASE ':memory:' AS raw;
+        ATTACH DATABASE ':memory:' AS raw;
         CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
-        CREATE VIEW raw.requests_raw_decoded AS SELECT * FROM requests_raw;
-        "#,
-    )
+        CREATE VIEW raw."{view_name}" AS SELECT id FROM raw.requests_raw;
+        "#
+    ))
     .unwrap();
 
     let config = SetupConfig {
         tables: vec![SetupTable {
             name: TableName::new("requests_raw"),
             schema: SchemaName::new("raw"),
-            columns: vec![ColumnName::new("data")],
+            columns: vec![SetupColumn::new(
+                "data",
+                DEFAULT_RETRAIN_GROWTH,
+                DEFAULT_MIN_SAMPLES,
+                DEFAULT_MAX_SAMPLES,
+            )],
         }],
-        retrain_growth: DEFAULT_RETRAIN_GROWTH,
         compression_level: DEFAULT_LEVEL,
     };
 
     let mut wrapper = common::RusqliteConn::new(&conn);
     setup(&mut wrapper, &config).unwrap();
+
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM raw.sqlite_master WHERE type = 'view'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 1);
 }
 
 #[test]
@@ -46,16 +63,20 @@ fn setup_creates_view() {
         tables: vec![SetupTable {
             name: TableName::new("requests_raw"),
             schema: SchemaName::new("raw"),
-            columns: vec![ColumnName::new("data")],
+            columns: vec![SetupColumn::new(
+                "data",
+                DEFAULT_RETRAIN_GROWTH,
+                DEFAULT_MIN_SAMPLES,
+                DEFAULT_MAX_SAMPLES,
+            )],
         }],
         compression_level: DEFAULT_LEVEL,
-        retrain_growth: DEFAULT_RETRAIN_GROWTH,
     };
 
     let mut wrapper = common::RusqliteConn::new(&conn);
     setup(&mut wrapper, &config).unwrap();
 
-    let view_name = "requests_raw__zstd_decoded";
+    let view_name = "__zstd_decoded_requests_raw";
     let count: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM raw.sqlite_master WHERE type = 'view' AND name = ?1",
@@ -65,6 +86,57 @@ fn setup_creates_view() {
         .unwrap();
 
     assert_eq!(count, 1);
+}
+
+#[test]
+fn setup_creates_one_view_per_table() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        r#"
+        ATTACH DATABASE ':memory:' AS raw;
+        CREATE TABLE raw.requests_raw (
+            id INTEGER PRIMARY KEY,
+            data BLOB,
+            headers BLOB
+        );
+        "#,
+    )
+    .unwrap();
+
+    let config = SetupConfig {
+        tables: vec![SetupTable {
+            name: TableName::new("requests_raw"),
+            schema: SchemaName::new("raw"),
+            columns: vec![
+                SetupColumn::new(
+                    "data",
+                    DEFAULT_RETRAIN_GROWTH,
+                    DEFAULT_MIN_SAMPLES,
+                    DEFAULT_MAX_SAMPLES,
+                ),
+                SetupColumn::new(
+                    "headers",
+                    DEFAULT_RETRAIN_GROWTH,
+                    DEFAULT_MIN_SAMPLES,
+                    DEFAULT_MAX_SAMPLES,
+                ),
+            ],
+        }],
+        compression_level: DEFAULT_LEVEL,
+    };
+
+    let mut wrapper = common::RusqliteConn::new(&conn);
+    setup(&mut wrapper, &config).unwrap();
+
+    let names: Vec<String> = conn
+        .prepare("SELECT name FROM raw.sqlite_master WHERE type = 'view' ORDER BY name")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+
+    assert_eq!(names, vec!["__zstd_decoded_requests_raw".to_string()]);
 }
 
 #[test]
@@ -82,10 +154,14 @@ fn setup_rejects_missing_column() {
         tables: vec![SetupTable {
             name: TableName::new("requests_raw"),
             schema: SchemaName::new("raw"),
-            columns: vec![ColumnName::new("unvalid_column")],
+            columns: vec![SetupColumn::new(
+                "unvalid_column",
+                DEFAULT_RETRAIN_GROWTH,
+                DEFAULT_MIN_SAMPLES,
+                DEFAULT_MAX_SAMPLES,
+            )],
         }],
         compression_level: DEFAULT_LEVEL,
-        retrain_growth: DEFAULT_RETRAIN_GROWTH,
     };
 
     let mut wrapper = common::RusqliteConn::new(&conn);
@@ -115,7 +191,6 @@ fn setup_rejects_missing_table() {
             columns: vec![],
         }],
         compression_level: DEFAULT_LEVEL,
-        retrain_growth: DEFAULT_RETRAIN_GROWTH,
     };
 
     let mut wrapper = common::RusqliteConn::new(&conn);

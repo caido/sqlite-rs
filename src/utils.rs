@@ -7,3 +7,7 @@ pub fn quote_qualified(schema: &str, name: &str) -> String {
 pub fn quote_identifier(identifier: &str) -> String {
     format!("\"{}\"", identifier.replace('"', "\"\""))
 }
+
+pub fn quote_literal(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
