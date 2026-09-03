@@ -49,9 +49,17 @@ fn setup_table_already_exists() {
     let conn = Connection::open_in_memory().unwrap();
     conn.execute_batch(
         r#"
-         ATTACH DATABASE ':memory:' AS raw;
-        CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
-        CREATE TABLE raw.__compress_dicts (id INTEGER PRIMARY KEY, dict BLOB NOT NULL, trained_at INTEGER NOT NULL, table_name TEXT NOT NULL, column_name TEXT NOT NULL);
+            ATTACH DATABASE ':memory:' AS raw;
+            CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
+            CREATE TABLE raw.__compress_dicts (
+                id INTEGER PRIMARY KEY,
+                dict BLOB NOT NULL,
+                trained_at INTEGER NOT NULL,
+                table_name TEXT NOT NULL,
+                column_name TEXT NOT NULL,
+                row_count INTEGER NOT NULL,
+                is_current INTEGER NOT NULL DEFAULT 0
+            );
         "#,
     )
     .unwrap();

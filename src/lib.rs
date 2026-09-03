@@ -1,3 +1,4 @@
+mod cache;
 mod conn;
 mod dict;
 mod functions;
@@ -6,11 +7,9 @@ mod utils;
 
 pub const DEFAULT_RETRAIN_GROWTH: usize = 5000;
 
-pub use dict::{
-    errors::DictError, get_decoder, get_encoder, train_all, train_by_column, ColumnKey, DictId,
-    CURRENT_DICT_IDS,
-};
-pub use functions::{compress, decompress, CodecError, Header, DEFAULT_LEVEL};
+pub use cache::{CacheKeySource, DbKey};
+pub use dict::{errors::DictError, train_all, train_by_column, ColumnKey, DictId};
+pub use functions::{CodecError, Header, DEFAULT_LEVEL};
 pub use setup::{
     setup, ColumnName, DictStore, SchemaName, SetupColumn, SetupConfig, SetupConnection,
     SetupError, SetupTable, TableName,
