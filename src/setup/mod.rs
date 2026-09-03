@@ -16,6 +16,8 @@ pub fn setup<C>(conn: &mut C, config: &SetupConfig) -> Result<(), SetupError>
 where
     C: SetupConnection,
 {
+    config.validate()?;
+
     init_view(conn, config)?;
     init_dict(conn, config)?;
 
