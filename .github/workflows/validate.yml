@@ -19,7 +19,7 @@ env:
 jobs:
   fmt:
     name: Format
-    runs-on: warp-2x-x64-wv74v2x2m44dxxcn
+    runs-on: warp-ubuntu-latest-x64-2x
     timeout-minutes: 10
     steps:
       - name: Checkout repository
