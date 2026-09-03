@@ -1,18 +1,28 @@
 use rusqlite::Connection;
 use sqlite_compress::{
-    compress, decompress, get_decoder, get_encoder, DictId, Header, DEFAULT_LEVEL,
+    compress, decompress, get_decoder, get_encoder, ColumnKey, DictId, Header, CURRENT_DICT_IDS,
+    DEFAULT_LEVEL,
 };
 
 mod common;
 use crate::common::{expect_decoder, expect_encoder};
 
-fn seed_dict(conn: &Connection, id: DictId) {
+const SCHEMA: &str = "raw";
+
+fn column(name: &str) -> ColumnKey {
+    ColumnKey::new(SCHEMA, "requests_raw", name)
+}
+
+fn seed_dict(conn: &Connection, id: DictId, table_name: &str, column_name: &str) {
+    let _ = conn.execute("ATTACH DATABASE ':memory:' AS raw", []);
     conn.execute_batch(
         r#"
-        CREATE TABLE IF NOT EXISTS __zstd_dicts (
+        CREATE TABLE IF NOT EXISTS "raw"."__compress_dicts" (
             id INTEGER PRIMARY KEY,
             dict BLOB NOT NULL,
             trained_at INTEGER NOT NULL,
+            table_name TEXT NOT NULL,
+            column_name TEXT NOT NULL,
             row_count INTEGER NOT NULL DEFAULT 0
         );
         "#,
@@ -26,9 +36,10 @@ fn seed_dict(conn: &Connection, id: DictId) {
     let dict = zstd::dict::from_samples(&sample_refs, 1024).unwrap();
 
     conn.execute(
-        "INSERT OR REPLACE INTO __zstd_dicts (id, dict, trained_at, row_count) \
-         VALUES (?1, ?2, strftime('%s','now'), 32)",
-        rusqlite::params![id.get(), dict],
+        "INSERT OR REPLACE INTO \"raw\".\"__compress_dicts\" \
+         (id, dict, trained_at, table_name, column_name, row_count) \
+         VALUES (?1, ?2, strftime('%s','now'), ?3, ?4, 32)",
+        rusqlite::params![id.get(), dict, table_name, column_name],
     )
     .unwrap();
 }
@@ -37,23 +48,25 @@ fn seed_dict(conn: &Connection, id: DictId) {
 fn compress_decompress_roundtrip_via_cached_dict() {
     let conn = Connection::open_in_memory().unwrap();
     let id = DictId::new(2_001);
-    seed_dict(&conn, id);
+    seed_dict(&conn, id, "requests_raw", "data");
 
     let mut wrapper = common::RusqliteConn::new(&conn);
-    // populate both caches + LATEST_DICT_ID
-    expect_encoder(get_encoder(id, &mut wrapper, DEFAULT_LEVEL));
-    expect_decoder(get_decoder(id, &mut wrapper));
+    // populate both caches + CURRENT_DICT_ID
+    expect_encoder(get_encoder(SCHEMA, id, &mut wrapper, DEFAULT_LEVEL));
+    expect_decoder(get_decoder(SCHEMA, id, &mut wrapper));
+
+    CURRENT_DICT_IDS.lock().insert(column("data"), id);
 
     let original = b"GET /api/users/42 HTTP/1.1\r\nHost: example.com\r\n\r\n";
 
-    let compressed = compress(original, DEFAULT_LEVEL).unwrap();
+    let compressed = compress(original, &column("data"), DEFAULT_LEVEL).unwrap();
 
-    let (header, _) = Header::parse(&compressed).unwrap();
+    let (header, _payload) = Header::parse(&compressed).unwrap();
 
     assert_eq!(header.dict_id.get(), id.get());
     assert!(compressed.len() > 4);
 
-    let decompressed = decompress(&compressed).unwrap();
+    let decompressed = decompress(&compressed, Some(SCHEMA)).unwrap();
     assert_eq!(decompressed, original);
 }
 
@@ -64,11 +77,51 @@ fn compress_falls_back_to_raw_without_cache() {
     // after ensuring no encoder for that path, or reset via a fresh unused scenario)
 
     let original = b"hello world without dict";
-    let compressed = compress(original, DEFAULT_LEVEL).unwrap();
+    let compressed = compress(original, &column("data"), DEFAULT_LEVEL).unwrap();
     let header = u32::from_le_bytes(compressed[..4].try_into().unwrap());
 
     if header == 0 {
-        let decompressed = decompress(&compressed).unwrap();
+        let decompressed = decompress(&compressed, Some(SCHEMA)).unwrap();
         assert_eq!(decompressed, original);
     }
+}
+
+#[test]
+fn compress_uses_distinct_dict_ids_per_column() {
+    let conn = Connection::open_in_memory().unwrap();
+    let data_id = DictId::new(3_001);
+    let headers_id = DictId::new(3_002);
+
+    seed_dict(&conn, data_id, "requests_raw", "data");
+    seed_dict(&conn, headers_id, "requests_raw", "headers");
+
+    let mut wrapper = common::RusqliteConn::new(&conn);
+    expect_encoder(get_encoder(SCHEMA, data_id, &mut wrapper, DEFAULT_LEVEL));
+    expect_decoder(get_decoder(SCHEMA, data_id, &mut wrapper));
+    expect_encoder(get_encoder(SCHEMA, headers_id, &mut wrapper, DEFAULT_LEVEL));
+    expect_decoder(get_decoder(SCHEMA, headers_id, &mut wrapper));
+
+    {
+        let mut map = CURRENT_DICT_IDS.lock();
+        map.insert(column("data"), data_id);
+        map.insert(column("headers"), headers_id);
+    }
+
+    let payload = b"GET /api/users/42 HTTP/1.1\r\nHost: example.com\r\n\r\n";
+
+    let compressed_data = compress(payload, &column("data"), DEFAULT_LEVEL).unwrap();
+    let compressed_headers = compress(payload, &column("headers"), DEFAULT_LEVEL).unwrap();
+
+    let (header_data, _payload) = Header::parse(&compressed_data).unwrap();
+    let (header_headers, _payload) = Header::parse(&compressed_headers).unwrap();
+
+    assert_eq!(header_data.dict_id.get(), data_id.get());
+    assert_eq!(header_headers.dict_id.get(), headers_id.get());
+    assert_ne!(header_data.dict_id.get(), header_headers.dict_id.get());
+
+    assert_eq!(decompress(&compressed_data, Some(SCHEMA)).unwrap(), payload);
+    assert_eq!(
+        decompress(&compressed_headers, Some(SCHEMA)).unwrap(),
+        payload
+    );
 }

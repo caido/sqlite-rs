@@ -8,7 +8,7 @@ autobenches = false
 sqlite-loadable = {git = "https://github.com/caido/dependency-sqlite-loadable-rs",branch = "caido",default-features = false,features = ["dynamic"]}
 zstd = { version = "0.13.3", features = ["zdict_builder"] }
 thiserror = "2.0.19"
-parking_lot = "0.12.5"
+parking_lot = "0.12.4"
 zerocopy = { version = "0.8.56", features = ["derive"] }
 
 [dev-dependencies]
