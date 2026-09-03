@@ -4,6 +4,7 @@ use crate::{
     dict::DICT_TABLE_NAME,
     functions::Level,
     utils::{quote_identifier, quote_qualified},
+    SetupError,
 };
 
 const VIEW_SUFFIX: &str = "__zstd_decoded";
@@ -75,6 +76,34 @@ impl SetupColumn {
             max_samples,
         }
     }
+
+    pub fn validate(&self) -> Result<(), SetupError> {
+        if self.retrain_growth == 0 {
+            return Err(SetupError::InvalidConfig(
+                "retrain growth must be greater than zero",
+            ));
+        }
+
+        if self.min_samples == 0 {
+            return Err(SetupError::InvalidConfig(
+                "min samples must be greater than zero",
+            ));
+        }
+
+        if self.max_samples == 0 {
+            return Err(SetupError::InvalidConfig(
+                "max samples must be greater than zero",
+            ));
+        }
+
+        if self.max_samples < self.min_samples {
+            return Err(SetupError::InvalidConfig(
+                "max samples must be greater than or equal to min samples",
+            ));
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -121,6 +150,15 @@ impl SetupConfig {
         self.tables
             .iter()
             .flat_map(|table| table.columns.iter().map(move |column| (table, column)))
+    }
+
+    pub fn validate(&self) -> Result<(), SetupError> {
+        for table in &self.tables {
+            for column in &table.columns {
+                column.validate()?;
+            }
+        }
+        Ok(())
     }
 }
 

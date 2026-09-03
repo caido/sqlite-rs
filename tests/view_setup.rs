@@ -6,6 +6,17 @@ use sqlite_compress::{
 mod common;
 use common::{DEFAULT_MAX_SAMPLES, DEFAULT_MIN_SAMPLES};
 
+fn invalid_config(column: SetupColumn) -> SetupConfig {
+    SetupConfig {
+        tables: vec![SetupTable {
+            name: TableName::new("requests_raw"),
+            schema: SchemaName::new("raw"),
+            columns: vec![column],
+        }],
+        compression_level: DEFAULT_LEVEL,
+    }
+}
+
 #[test]
 fn setup_skips_existing_view() {
     let conn = Connection::open_in_memory().unwrap();
@@ -199,5 +210,100 @@ fn setup_rejects_missing_table() {
         err,
         SetupError::TableNotFound(table)
             if table == "raw.missing_table"
+    ));
+}
+
+#[test]
+fn setup_rejects_zero_retrain_growth() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        r#"
+        ATTACH DATABASE ':memory:' AS raw;
+        CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
+        "#,
+    )
+    .unwrap();
+
+    let config = invalid_config(SetupColumn::new(
+        "data",
+        0,
+        DEFAULT_MIN_SAMPLES,
+        DEFAULT_MAX_SAMPLES,
+    ));
+    let mut wrapper = common::RusqliteConn::new(&conn);
+    let err = setup(&mut wrapper, &config).unwrap_err();
+    assert!(matches!(
+        err,
+        SetupError::InvalidConfig("retrain growth must be greater than zero")
+    ));
+}
+
+#[test]
+fn setup_rejects_zero_min_samples() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        r#"
+        ATTACH DATABASE ':memory:' AS raw;
+        CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
+        "#,
+    )
+    .unwrap();
+
+    let config = invalid_config(SetupColumn::new(
+        "data",
+        DEFAULT_RETRAIN_GROWTH,
+        0,
+        DEFAULT_MAX_SAMPLES,
+    ));
+    let mut wrapper = common::RusqliteConn::new(&conn);
+    let err = setup(&mut wrapper, &config).unwrap_err();
+    assert!(matches!(
+        err,
+        SetupError::InvalidConfig("min samples must be greater than zero")
+    ));
+}
+
+#[test]
+fn setup_rejects_zero_max_samples() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        r#"
+        ATTACH DATABASE ':memory:' AS raw;
+        CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
+        "#,
+    )
+    .unwrap();
+
+    let config = invalid_config(SetupColumn::new(
+        "data",
+        DEFAULT_RETRAIN_GROWTH,
+        DEFAULT_MIN_SAMPLES,
+        0,
+    ));
+    let mut wrapper = common::RusqliteConn::new(&conn);
+    let err = setup(&mut wrapper, &config).unwrap_err();
+    assert!(matches!(
+        err,
+        SetupError::InvalidConfig("max samples must be greater than zero")
+    ));
+}
+
+#[test]
+fn setup_rejects_max_samples_below_min() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        r#"
+        ATTACH DATABASE ':memory:' AS raw;
+        CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
+        "#,
+    )
+    .unwrap();
+
+    let config = invalid_config(SetupColumn::new("data", DEFAULT_RETRAIN_GROWTH, 2000, 1000));
+    let mut wrapper = common::RusqliteConn::new(&conn);
+    let err = setup(&mut wrapper, &config).unwrap_err();
+    assert!(matches!(
+        err,
+        SetupError::InvalidConfig("max samples must be greater than or equal to min samples")
     ));
 }
