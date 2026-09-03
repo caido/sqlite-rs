@@ -1,9 +1,7 @@
 mod dataset;
 
-use std::sync::atomic::Ordering;
-
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use sqlite_compress::{compress, DEFAULT_LEVEL, LATEST_DICT_ID};
+use sqlite_compress::{compress, Header, CURRENT_DICT_IDS, DEFAULT_LEVEL};
 
 #[path = "utils.rs"]
 mod utils;
@@ -15,11 +13,16 @@ fn bench_insert(c: &mut Criterion) {
         for size in utils::SIZE_BUCKETS {
             let sample = utils::sample(kind, size);
 
-            LATEST_DICT_ID.store(0, Ordering::Relaxed);
-            let raw = compress(&sample, DEFAULT_LEVEL).expect("compress raw");
-            assert_eq!(u32::from_le_bytes(raw[..4].try_into().unwrap()), 0);
+            let column_key = utils::column_key();
 
-            let dict_id = utils::setup_trained_dict(kind, size);
+            CURRENT_DICT_IDS.lock().remove(&column_key);
+
+            let raw = compress(&sample, &column_key, DEFAULT_LEVEL).expect("compress raw");
+            let (header, _) = Header::parse(&raw).expect("parse header");
+            assert_eq!(header.dict_id.get(), 0);
+
+            let dict_ids = utils::setup_trained_dict(kind, size);
+            let dict_id = dict_ids.first().expect("train dictionary");
 
             let label = utils::sample_label(kind, size);
 
@@ -40,12 +43,13 @@ fn bench_insert(c: &mut Criterion) {
 
             // Insertion with rust sqlite_compress, no dictionary
             group.bench_function(BenchmarkId::new("rust_compress_and_insert", &label), |b| {
-                LATEST_DICT_ID.store(0, Ordering::Relaxed);
+                CURRENT_DICT_IDS.lock().remove(&column_key);
                 b.iter_batched(
                     utils::open_table,
                     |conn| {
-                        let compressed = compress(black_box(sample.as_slice()), DEFAULT_LEVEL)
-                            .expect("compress");
+                        let compressed =
+                            compress(black_box(sample.as_slice()), &column_key, DEFAULT_LEVEL)
+                                .expect("compress");
                         conn.execute(
                             "INSERT INTO requests_raw (data) VALUES (?1)",
                             [black_box(compressed.as_slice())],
@@ -58,16 +62,15 @@ fn bench_insert(c: &mut Criterion) {
 
             // Insertion with rust sqlite_compress + dictionary
             group.bench_function(BenchmarkId::new("rust_compress_dict_insert", &label), |b| {
-                LATEST_DICT_ID.store(dict_id.get(), Ordering::Relaxed);
+                CURRENT_DICT_IDS.lock().insert(column_key.clone(), *dict_id);
+
                 b.iter_batched(
                     utils::open_table,
                     |conn| {
-                        let compressed = compress(black_box(sample.as_slice()), DEFAULT_LEVEL)
-                            .expect("compress");
-                        debug_assert_eq!(
-                            u32::from_le_bytes(compressed[..4].try_into().unwrap()),
-                            dict_id.get()
-                        );
+                        let compressed =
+                            compress(black_box(sample.as_slice()), &column_key, DEFAULT_LEVEL)
+                                .expect("compress");
+
                         conn.execute(
                             "INSERT INTO requests_raw (data) VALUES (?1)",
                             [black_box(compressed.as_slice())],
@@ -88,7 +91,7 @@ fn bench_insert(c: &mut Criterion) {
                     },
                     |()| {
                         conn.execute(
-                            "INSERT INTO requests_raw (data) VALUES (compress(?1))",
+                            "INSERT INTO requests_raw (data) VALUES (compress(?1,'raw', 'requests_raw', 'data'))",
                             [black_box(sample.as_slice())],
                         )
                         .expect("insert via extension");

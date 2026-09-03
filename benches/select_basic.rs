@@ -30,7 +30,7 @@ fn select_blob(conn: &Connection) -> Vec<u8> {
 
 fn select_decompressed_sql(conn: &Connection) -> Vec<u8> {
     conn.query_row(
-        "SELECT decompress(data) FROM requests_raw WHERE id = 1",
+        "SELECT decompress(data,'raw') FROM requests_raw WHERE id = 1",
         [],
         |row| row.get(0),
     )
@@ -45,10 +45,14 @@ fn bench_select(c: &mut Criterion) {
             let sample = utils::sample(kind, size);
             let label = utils::sample_label(kind, size);
 
-            let compressed = compress(&sample, DEFAULT_LEVEL).expect("compress sample");
+            let column_key = utils::column_key();
+
+            let compressed =
+                compress(&sample, &column_key, DEFAULT_LEVEL).expect("compress sample");
             utils::report_size("zstd", &label, sample.len(), compressed.len());
 
-            let roundtrip = decompress(&compressed).expect("decompress sample");
+            let roundtrip =
+                decompress(&compressed, Some(column_key.schema())).expect("decompress sample");
             assert_eq!(roundtrip, sample);
 
             //Selection without decompression raw sqlite
@@ -65,7 +69,8 @@ fn bench_select(c: &mut Criterion) {
                 let conn = open_filled(&compressed);
                 b.iter(|| {
                     let blob = select_blob(&conn);
-                    let out = decompress(black_box(&blob)).expect("decompress");
+                    let out = decompress(black_box(&blob), Some(column_key.schema()))
+                        .expect("decompress");
                     black_box(out);
                 });
             });
@@ -75,9 +80,14 @@ fn bench_select(c: &mut Criterion) {
                 BenchmarkId::new("rust_decompress_ext_select", &label),
                 |b| {
                     let conn = utils::open_table_with_extension();
+                    conn.execute(
+                        "INSERT INTO requests_raw (id, data) VALUES (1, ?1)",
+                        [compressed.as_slice()],
+                    )
+                    .expect("seed row");
+
                     let ext_roundtrip = select_decompressed_sql(&conn);
                     assert_eq!(ext_roundtrip, sample);
-
                     b.iter(|| {
                         let out = select_decompressed_sql(&conn);
                         black_box(out);

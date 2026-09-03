@@ -1,15 +1,19 @@
 #![allow(dead_code)]
 
-use std::{path::PathBuf, sync::atomic::Ordering};
+use std::path::PathBuf;
 
 use rand::{rngs::StdRng, SeedableRng};
 use rusqlite::{Connection, LoadExtensionGuard};
 use sqlite_compress::{
-    setup, train, ColumnName, DictId, DictStore, SchemaName, SetupConfig, SetupConnection,
-    SetupTable, TableName, DEFAULT_LEVEL, LATEST_DICT_ID,
+    setup, train_all, ColumnKey, DictId, DictStore, SchemaName, SetupColumn, SetupConfig,
+    SetupConnection, SetupTable, TableName, DEFAULT_LEVEL,
 };
 
 use crate::dataset::{generate_sample, PayloadKind, SizeBucket};
+
+pub fn column_key() -> ColumnKey {
+    ColumnKey::new("raw", "requests_raw", "data")
+}
 
 pub const SIZE_BUCKETS: [SizeBucket; 4] = [
     SizeBucket::Tiny,
@@ -83,6 +87,11 @@ impl SetupConnection for RusqliteConn<'_> {
         }
         Ok(())
     }
+    fn query_strings(&mut self, sql: &str) -> Result<Vec<String>, Self::Error> {
+        let mut stmt = self.0.prepare(sql)?;
+        let rows = stmt.query_map([], |row| row.get(0))?;
+        rows.collect()
+    }
 }
 
 fn bench_config() -> SetupConfig {
@@ -90,15 +99,19 @@ fn bench_config() -> SetupConfig {
         tables: vec![SetupTable {
             name: TableName::new("requests_raw"),
             schema: SchemaName::new("raw"),
-            columns: vec![ColumnName::new("data")],
+            columns: vec![SetupColumn::new(
+                "data",
+                5000,
+                DICT_TRAIN_SAMPLES as usize,
+                DICT_TRAIN_SAMPLES as usize,
+            )],
         }],
         compression_level: DEFAULT_LEVEL,
-        retrain_growth: 5000,
     }
 }
 
 /// Train a dictionary on samples of the given kind/size and warm the caches.
-pub fn setup_trained_dict(kind: PayloadKind, size: SizeBucket) -> DictId {
+pub fn setup_trained_dict(kind: PayloadKind, size: SizeBucket) -> Vec<DictId> {
     let conn = Connection::open_in_memory().expect("open dict db");
     conn.execute_batch(
         "
@@ -124,17 +137,7 @@ pub fn setup_trained_dict(kind: PayloadKind, size: SizeBucket) -> DictId {
     let config = bench_config();
     let mut wrapper = RusqliteConn(&conn);
     setup(&mut wrapper, &config).expect("setup");
-    let dict_id = train(
-        &mut wrapper,
-        &config,
-        DICT_CAPACITY,
-        DICT_TRAIN_SAMPLES as usize,
-        DICT_TRAIN_SAMPLES as usize,
-    )
-    .expect("train dictionary");
-
-    assert_eq!(LATEST_DICT_ID.load(Ordering::Relaxed), dict_id.get());
-    dict_id
+    train_all(&mut wrapper, &config, DICT_CAPACITY).expect("train dictionary")
 }
 
 pub fn open_table() -> Connection {
@@ -183,9 +186,11 @@ pub fn open_table_with_extension() -> Connection {
         conn.load_extension(&path, Some("sqlite3_compress_init"))
             .unwrap_or_else(|e| panic!("load extension {}: {e}", path.display()));
     }
-    conn.query_row("SELECT typeof(compress(X'00'))", [], |row| {
-        row.get::<_, String>(0)
-    })
+    conn.query_row(
+        "SELECT typeof(compress(X'00','raw', 'requests_raw', 'data'))",
+        [],
+        |row| row.get::<_, String>(0),
+    )
     .expect("compress() SQL function missing after load_extension");
     conn
 }
