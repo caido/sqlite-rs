@@ -1,54 +1,108 @@
 # sqlite-compress
 
-Rust library for **zstd dictionary compression** on SQLite blob columns. It trains dictionaries from your data, stores them in SQLite, caches encoders/decoders in memory, and sets up decode views over compressed tables.
+`sqlite-compress` is a SQLite extension and Rust library for compressing BLOB
+columns with Zstandard. It can train a dictionary from representative values,
+store that dictionary alongside the data, and transparently expose decoded
+views for normal reads.
 
 ## Features
 
-- **Setup** — per schema, create `__zstd_dicts` and `*_zstd_decoded` views, then warm the dict cache
-- **Train** — sample configured columns, build a zstd dictionary, persist it, update LRU caches
-- **Encode / decode** — `get_encoder` / `get_decoder` with process-wide LRU caches
-- **DB-agnostic traits** — `DictStore` / `SetupConnection` so callers can wrap any SQLite connection
+- SQLite scalar functions: `compress` and `decompress`
+- Zstandard compression, with a raw-compression fallback before a dictionary is available
+- Per-column dictionary training from existing BLOB values
+- Configurable sample and retraining thresholds
+- One dictionary store per SQLite schema
+- Generated decoded views for configured tables
+- In-memory encoder and decoder caches
 
-## Quick start
+## Installation
 
-### What `setup` does
+Build the extension from source:
 
-1. Ensures each configured table/column exists
-2. Creates `{table}_zstd_decoded` views (idempotent)
-3. Creates `__zstd_dicts` in each schema (`id`, `dict`, `trained_at`, `row_count`)
-4. Warms encoder/decoder caches from the latest dictionary (if any)
+```sh
+cargo build --release
+```
 
-### What `train` does
+Load the generated dynamic library in SQLite, passing the extension entry point
+explicitly. The exact library filename differs by platform:
 
-1. Validates config (capacity, tables, columns)
-2. Checks there are enough samples and enough growth since the last train
-3. Builds a dictionary from sampled blobs
-4. Persists it into `__zstd_dicts` and syncs LRU caches
+```sql
+.load ./target/release/libsqlite_compress sqlite3_compress_init
+```
 
-### Runtime workflow (setup → train → use)
+> TODO: publish pre-built releases and document the recommended installation
+> channel.
 
-```mermaid
-flowchart LR
-  subgraph setup_flow [setup]
-    A[Validate tables/columns] --> B[Create *__zstd_decoded views]
-    B --> C[Create __zstd_dicts]
-    C --> D[Warm encoder/decoder LRU]
-  end
+## Workflow
 
-  subgraph train_flow [train]
-    E[Sample configured columns] --> F{Enough samples<br/>and retrain growth?}
-    F -->|no| G[Skip / error]
-    F -->|yes| H[Build zstd dictionary]
-    H --> I[Persist to __zstd_dicts]
-    I --> J[Update LRU caches]
-  end
+Today, applications prepare and train dictionaries through the Rust API:
 
-  subgraph use_flow [compress / decompress]
-    K[get_encoder / get_decoder] --> L{In cache?}
-    L -->|yes| M[Return cached dict]
-    L -->|no| N[Load from __zstd_dicts]
-    N --> O[Insert into LRU]
-  end
+1. Configure the tables and BLOB columns to manage.
+2. Run `setup` to create dictionary storage and decoded views.
+3. Run `train_all` once enough representative rows are available, then rerun it
+   after the configured data-growth threshold.
+4. Write compressed values with `compress` and read them through the decoded
+   view.
 
-  setup_flow --> train_flow --> use_flow
+`setup` and `train_all` are intentionally explicit for now. Automating these
+steps inside the library is planned for a future release.
+
+## Usage
+
+The Rust host supplies a connection adapter, then configures and prepares its
+tables. See the complete, runnable [setup and training example](examples/setup_and_train.rs).
+
+```rust
+use sqlite_compress::{
+    setup, train_all, SchemaName, SetupColumn, SetupConfig, SetupTable, TableName,
+    DEFAULT_LEVEL, DEFAULT_RETRAIN_GROWTH,
+};
+
+let config = SetupConfig {
+    tables: vec![SetupTable {
+        schema: SchemaName::new("main"),
+        name: TableName::new("requests"),
+        columns: vec![SetupColumn::new(
+            "body",
+            DEFAULT_RETRAIN_GROWTH,
+            1_000,
+            10_000,
+        )],
+    }],
+    compression_level: DEFAULT_LEVEL,
+};
+
+setup(&mut connection, &config)?;
+train_all(&mut connection, &config, 112_640)?;
+```
+
+After loading the extension and training a dictionary, store a compressed BLOB:
+
+```sql
+INSERT INTO requests (body)
+VALUES (compress(:body, 'main', 'requests', 'body'));
+```
+
+For ordinary reads, query the decoded view created by `setup`. Its name is
+`__compress_decoded_<table>`:
+
+```sql
+SELECT id, body
+FROM __compress_decoded_requests;
+```
+
+`decompress` is also available when a view is not appropriate. Dictionary-backed
+payloads need the schema name; raw Zstandard payloads do not:
+
+```sql
+SELECT decompress(body, 'main') AS body
+FROM requests;
+```
+
+## Example
+
+Run the complete setup and training example with:
+
+```sh
+cargo run --example setup_and_train
 ```
