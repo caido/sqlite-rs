@@ -17,12 +17,14 @@ const SQLITE_OK: i32 = 0;
 const SQLITE_ROW: i32 = 100;
 const SQLITE_DONE: i32 = 101;
 
+/// Adapter that exposes the current SQLite connection through setup traits.
 pub struct SqliteConn {
     db: *mut sqlite3,
     key: DbKey,
 }
 
 impl SqliteConn {
+    /// Recovers the SQLite connection that invoked an extension function.
     pub fn from_context(context: *mut sqlite3_context) -> Self {
         let db = sqlite_loadable::api::context_db_handle(context);
         Self {
@@ -56,6 +58,8 @@ impl DictStore for SqliteConn {
         let mut stmt = std::ptr::null_mut();
         let c_sql = CString::new(sql).map_err(|e| ConnError(e.to_string()))?;
 
+        // SAFETY: `self.db` comes from SQLite's invocation context and `c_sql`
+        // remains alive for the entire prepare call.
         let rc = unsafe {
             sqlite3ext_prepare_v2(self.db, c_sql.as_ptr(), -1, &mut stmt, std::ptr::null_mut())
         };
@@ -64,6 +68,8 @@ impl DictStore for SqliteConn {
         }
 
         let mut out = Vec::new();
+        // SAFETY: SQLite owns `stmt` after successful preparation. Each BLOB is
+        // copied before the next step or finalization invalidates its pointer.
         unsafe {
             loop {
                 match sqlite3ext_step(stmt) {

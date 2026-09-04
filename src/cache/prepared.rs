@@ -9,6 +9,10 @@ use crate::{
     ColumnKey, DictError, DictId, DictStore, SetupConnection,
 };
 
+/// Returns the prepared encoder for `dict_id`, loading its bytes on a cache miss.
+///
+/// The cache is checked again after the SQLite read because another caller may
+/// have populated the connection-scoped cache during that read.
 pub(crate) fn get_encoder<C>(
     conn: &mut C,
     schema: &str,
@@ -39,6 +43,9 @@ where
     Ok(encoder)
 }
 
+/// Returns the prepared decoder for `dict_id`, loading its bytes on a cache miss.
+///
+/// See [`get_encoder`] for the second cache check performed after loading.
 pub(crate) fn get_decoder<C>(
     conn: &mut C,
     schema: &str,
@@ -68,6 +75,10 @@ where
     Ok(decoder)
 }
 
+/// Synchronizes a column's current dictionary and prepared codecs with SQLite.
+///
+/// If no dictionary is current, the cached column mapping is removed so later
+/// compression falls back to raw Zstandard data.
 pub(crate) fn warm_cache<C>(conn: &mut C, column: &ColumnKey, level: Level) -> Result<(), DictError>
 where
     C: SetupConnection + CacheKeySource,
@@ -87,6 +98,10 @@ where
     Ok(())
 }
 
+/// Publishes a newly persisted dictionary to the connection-scoped cache.
+///
+/// Encoder and decoder entries are installed together so subsequent reads use
+/// the same dictionary version in either direction.
 pub(crate) fn insert_into_caches<C: CacheKeySource>(
     conn: &C,
     column: &ColumnKey,

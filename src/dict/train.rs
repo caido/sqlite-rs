@@ -13,6 +13,14 @@ use crate::{
 const SAMPLE_BATCH_SIZE: usize = 64;
 const SAVEPOINT: &str = "sqlite_compress_persist_dict";
 
+/// Trains each configured column and returns the ids of dictionaries created.
+///
+/// Columns without enough new data are skipped.
+///
+/// # Errors
+///
+/// Returns an error when configuration is invalid, SQLite access fails, or
+/// Zstandard cannot construct a dictionary from the collected samples.
 pub fn train_all<C>(
     conn: &mut C,
     config: &SetupConfig,
@@ -33,6 +41,15 @@ where
     Ok(dict_ids)
 }
 
+/// Trains a new dictionary only when the column has enough additional samples.
+///
+/// A successful retrain atomically replaces the current dictionary for the
+/// column and updates the cache used by the extension's compression scalar function.
+///
+/// # Errors
+///
+/// Returns an error when configuration is invalid, sample decoding or database
+/// access fails, or the resulting dictionary cannot be persisted.
 pub fn train_by_column<C>(
     conn: &mut C,
     table: &SetupTable,
@@ -95,6 +112,11 @@ where
     Ok(Some(dict_id))
 }
 
+/// Decodes a sample only when it has a supported extension header.
+///
+/// Blobs without a supported header remain in the training corpus unchanged.
+/// Once a header is accepted, decompression failures are propagated rather than
+/// silently training on a corrupted compressed value.
 pub(crate) fn decode_sample<C>(
     conn: &mut C,
     blob: &[u8],
@@ -121,8 +143,7 @@ where
     decompress_with_decoder(payload, &decoder, len).map_err(CodecError::DecompressionFailed)
 }
 
-/// Validate the config is valid.
-/// It is done by checking the dictionary capacity and the tables and columns configuration.
+/// Rejects configurations that cannot produce a useful dictionary.
 fn validate_config(column_size: usize, dict_capacity: usize) -> Result<(), SetupError> {
     if dict_capacity == 0 {
         return Err(SetupError::InvalidConfig(
@@ -158,11 +179,10 @@ where
     Ok((count >= min_samples as i64, count))
 }
 
-/// Check if the retrain is required.
-/// It is done by checking the last row count of the dictionary store.
-/// If the last row count is less than the retrain growth, the retrain is required.
-/// Last stored row_count for this column vs current sample count.
-/// No prior dict → retrain. Otherwise need `last + retrain_growth` samples.
+/// Decides whether sample growth justifies replacing the current dictionary.
+///
+/// The persisted row count records the sample population used by the previous
+/// training run, rather than the number of bytes in its dictionary.
 fn has_retrain_required<C>(
     conn: &mut C,
     dict_table: &str,
@@ -193,9 +213,10 @@ where
     Ok(available >= last + retrain_growth as i64)
 }
 
-/// Build the dictionary from the samples.
-/// It is done by collecting the samples from the tables, and building the dictionary.
-/// Using stream approach to avoid loading all the samples into memory.
+/// Builds a dictionary from recent non-empty values without retaining all rows.
+///
+/// Values are fetched in batches so a connection can stream rows rather than
+/// materializing the complete query result.
 fn build_dictionary<C>(
     conn: &mut C,
     schema: &str,
@@ -258,13 +279,10 @@ where
         .map_err(|error| SetupError::DictTrain(error.to_string()))
 }
 
-/// Persist the dictionary in the database.
-/// It is done by inserting the dictionary into the dictionary store.
-/// The dictionary store is a table with the following columns:
-/// - id: the id of the dictionary
-/// - dict: the dictionary
-/// - trained_at: the timestamp of the training
-/// - row_count: the number of rows in the dictionary
+/// Replaces the current dictionary for one column as a single savepoint.
+///
+/// Demoting the previous row and inserting the replacement must succeed
+/// together; otherwise readers could observe a column with no current id.
 fn persist_dictionary<C>(
     conn: &mut C,
     schema_name: &str,

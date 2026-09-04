@@ -7,8 +7,7 @@ use crate::{
     setup::SqlIdent,
 };
 
-/// For each schema in the [`SetupConfig`] checks if the dictionary table exists.
-/// If not, create it.
+/// Creates one dictionary store per configured schema when it is absent.
 fn ensure_table_exists<C>(conn: &mut C, config: &SetupConfig) -> Result<(), SetupError>
 where
     C: SetupConnection,
@@ -37,10 +36,10 @@ where
     Ok(())
 }
 
-/// Create the dictionary store for [`SetupConfig`] tables, then warm the dict cache.
-/// The warm cache is mandatory to ensure the dictionary is ready to be used.
-/// By [get_decoder_cached](crate::dict::get_decoder_cached), [get_encoder_cached](crate::dict::get_encoder_cached),
-/// the dictionary is cached in memory.
+/// Prepares dictionary storage and synchronizes cached current dictionaries.
+///
+/// Warming ensures [`crate::functions::sqlite_compress`] can select existing
+/// dictionaries before the first compression call.
 pub(super) fn init_dict<C>(conn: &mut C, config: &SetupConfig) -> Result<(), SetupError>
 where
     C: SetupConnection + CacheKeySource,

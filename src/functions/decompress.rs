@@ -27,6 +27,10 @@ pub(crate) fn decompress_raw(
     zstd::bulk::decompress(payload, uncompressed_len).map_err(CodecError::DecompressionFailed)
 }
 
+/// Implements SQLite's one- or two-argument `decompress` scalar function.
+///
+/// Dictionary-compressed payloads require the schema argument so the matching
+/// dictionary store can be selected.
 pub fn sqlite_decompress(
     context: *mut sqlite3_context,
     values: &[*mut sqlite3_value],

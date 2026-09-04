@@ -7,8 +7,7 @@ use crate::{
     SetupTable,
 };
 
-/// Doing the check if the table exists in the database.
-/// Based on the schema and the table name.
+/// Verifies that setup will not create a view over a missing source table.
 fn ensure_table_exists<C>(
     conn: &mut C,
     schema: &SchemaName,
@@ -34,8 +33,7 @@ where
     Ok(())
 }
 
-/// For each column in the table, check if the column exists in the database.
-/// Based on the table name and the schema.
+/// Verifies that each configured column belongs to its configured table.
 fn ensure_column_exist<C>(
     conn: &mut C,
     table: &TableName,
@@ -75,6 +73,10 @@ where
     .map_err(SetupError::from_conn)
 }
 
+/// Produces the projection for a decoded view.
+///
+/// Only configured columns are passed to `decompress`; all others retain their
+/// original value and order from SQLite's table metadata.
 fn build_decoded_select_list(
     table_columns: &[String],
     compressed: &std::collections::HashSet<&str>,
@@ -128,11 +130,10 @@ where
     Ok(())
 }
 
-/// Init goes through several checks
-/// 1. Ensure the table exists in the database.
-/// 2. Ensure the columns exist in the database.
-/// 3. Ensure the views exist in the database.
-///    A view is created for each column that targets the table in [`SetupConfig`].
+/// Validates configured sources before creating their decoded views.
+///
+/// Views are created only after all configured columns for a table have been
+/// confirmed, avoiding a partially initialized table configuration.
 pub(super) fn init_view<C>(conn: &mut C, config: &SetupConfig) -> Result<(), SetupError>
 where
     C: SetupConnection,

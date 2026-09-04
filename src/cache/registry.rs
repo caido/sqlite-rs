@@ -14,10 +14,15 @@ use crate::{
 pub static REGISTRY: LazyLock<Mutex<CacheRegistry>> =
     LazyLock::new(|| Mutex::new(CacheRegistry::new()));
 
+/// Supplies the stable cache identity associated with a database connection.
 pub trait CacheKeySource {
     fn db_key(&self) -> DbKey;
 }
 
+/// Owns the connection-scoped caches kept by the extension.
+///
+/// A cache is created lazily so read-only operations do not require setup to
+/// initialize every configured column.
 pub(super) struct CacheRegistry {
     caches: HashMap<DbKey, ConnectionCache>,
 }
@@ -58,6 +63,10 @@ pub(crate) fn remove_cache(key: DbKey) {
     REGISTRY.lock().caches.remove(&key);
 }
 
+/// Runs `f` with the cache belonging to `conn`, creating that cache if needed.
+///
+/// Keeping registry locking here ensures callers do not accidentally retain the
+/// global lock while performing database work.
 pub(crate) fn with_conn<C, R, F>(conn: &C, f: F) -> R
 where
     C: CacheKeySource,

@@ -27,6 +27,10 @@ fn compress_raw(data: &[u8], level: Level) -> std::result::Result<Vec<u8>, Codec
     wrap(DictId::from(0), data.len(), compressed)
 }
 
+/// Implements SQLite's four-argument `compress` scalar function.
+///
+/// The schema, table, and column identify the current dictionary. If no
+/// dictionary is ready, the function writes a raw Zstandard payload instead.
 pub fn sqlite_compress(context: *mut sqlite3_context, values: &[*mut sqlite3_value]) -> Result<()> {
     let data = api::value_blob(&values[0]);
     let schema = api::value_text(&values[1])?;

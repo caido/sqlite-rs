@@ -10,8 +10,13 @@ pub use train::{train_all, train_by_column};
 pub(crate) use types::DictKey;
 pub use types::{ColumnKey, DictId};
 
+/// Name of the per-schema table that stores trained dictionaries.
 pub static DICT_TABLE_NAME: &str = "__compress_dicts";
 
+/// Loads the dictionary bytes selected by [`DictKey`].
+///
+/// Prepared dictionaries remain cache-local; this function is the fallback that
+/// reconstructs them from the persistent store.
 pub(crate) fn load_raw_dict<C: DictStore>(
     dict_key: &DictKey,
     conn: &mut C,

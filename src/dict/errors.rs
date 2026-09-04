@@ -4,6 +4,7 @@ use thiserror::Error;
 
 use crate::dict::types::DictId;
 
+/// Describes a failure while reading a dictionary from its schema's store.
 #[derive(Error, Debug)]
 pub enum DictError {
     #[error("dictionary not ready")]

@@ -6,6 +6,7 @@ mod on_close;
 mod setup;
 mod utils;
 
+/// Default number of additional rows required before retraining a dictionary.
 pub const DEFAULT_RETRAIN_GROWTH: usize = 5000;
 
 pub use cache::{CacheKeySource, DbKey};
@@ -18,6 +19,10 @@ pub use setup::{
 use sqlite_loadable::{define_scalar_function, prelude::*, Result};
 
 #[sqlite_entrypoint]
+/// Registers the SQLite scalar functions and connection-close cache cleanup.
+///
+/// The entrypoint is invoked by SQLite when the extension is loaded for a
+/// connection; caches remain isolated by the connection's [`DbKey`].
 pub fn sqlite3_compress_init(db: *mut sqlite3) -> Result<()> {
     define_scalar_function(
         db,

@@ -12,6 +12,10 @@ static NEXT_DB_ID: AtomicU64 = AtomicU64::new(1);
 static HANDLE_KEYS: LazyLock<Mutex<HashMap<usize, DbKey>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// Identifies one SQLite connection's cache namespace.
+///
+/// Handles are mapped to monotonically allocated keys because SQLite may reuse
+/// a pointer address after a connection has been closed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DbKey(u64);
 
@@ -20,6 +24,10 @@ impl DbKey {
         Self(NEXT_DB_ID.fetch_add(1, Ordering::Relaxed))
     }
 
+    /// Returns the key associated with a live SQLite connection handle.
+    ///
+    /// Repeated calls for the same handle return the same key until the handle
+    /// is removed when the connection closes.
     pub fn for_handle(ptr: *mut std::ffi::c_void) -> Self {
         let addr = ptr as usize;
         *HANDLE_KEYS.lock().entry(addr).or_default()

@@ -4,6 +4,7 @@ use crate::{
     ColumnKey, DictError, DictId, SetupConnection,
 };
 
+/// Reads the id selected as current for `column` in its schema's dictionary store.
 pub(crate) fn read_current_id<C: SetupConnection>(
     conn: &mut C,
     column: &ColumnKey,

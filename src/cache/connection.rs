@@ -5,6 +5,10 @@ use zstd::dict::{DecoderDictionary, EncoderDictionary};
 
 use crate::{cache::lru::DictLru, ColumnKey, DictId};
 
+/// Holds cache state that must not be shared between SQLite connections.
+///
+/// Current dictionary ids are tracked per column, while prepared encoders and
+/// decoders are keyed by the dictionary version that produced them.
 pub(crate) struct ConnectionCache {
     current_ids: Mutex<HashMap<ColumnKey, DictId>>,
     pub(crate) encoders: Mutex<DictLru<EncoderDictionary<'static>>>,

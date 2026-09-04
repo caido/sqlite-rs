@@ -17,10 +17,13 @@ struct OnClose<F> {
     callback: Option<F>,
 }
 
+/// Releases an on-close callback when SQLite destroys its sentinel function.
 unsafe extern "C" fn on_close_destroy<F>(p_app: *mut c_void)
 where
     F: FnOnce(*mut sqlite3) + Send + 'static,
 {
+    // SAFETY: `on_close` transfers this exact allocation to SQLite as the
+    // sentinel's application data, which SQLite returns once to this destructor.
     let mut state = unsafe { Box::from_raw(p_app.cast::<OnClose<F>>()) };
 
     let callback = state
@@ -39,6 +42,10 @@ unsafe extern "C" fn on_close_sentinel(
     api::result_null(context);
 }
 
+/// Registers a private SQLite function whose destruction invokes `callback`.
+///
+/// SQLite owns the callback allocation after registration and invokes its
+/// destructor when the connection closes.
 pub(crate) fn on_close<F>(db: *mut sqlite3, callback: F) -> Result<()>
 where
     F: FnOnce(*mut sqlite3) + Send + 'static,
@@ -51,6 +58,8 @@ where
     let id = NEXT_ON_CLOSE_ID.fetch_add(1, Ordering::Relaxed);
     let function_name = CString::from_str(&format!("__sqlite_compress_on_close_{id}"))?;
 
+    // SAFETY: SQLite copies the function name during registration and receives
+    // ownership of `state` as application data on success.
     let rc = unsafe {
         sqlite3ext_create_function_v2(
             db,

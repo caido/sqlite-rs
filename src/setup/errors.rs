@@ -2,6 +2,7 @@ use std::error::Error as StdError;
 
 use thiserror::Error;
 
+/// Describes a failure while validating configuration or preparing a database.
 #[derive(Error, Debug)]
 pub enum SetupError {
     #[error("connection error: {0}")]
