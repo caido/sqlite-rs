@@ -2,6 +2,7 @@ mod cache;
 mod conn;
 mod dict;
 mod functions;
+mod on_close;
 mod setup;
 mod utils;
 
@@ -41,6 +42,12 @@ pub fn sqlite3_compress_init(db: *mut sqlite3) -> Result<()> {
         functions::sqlite_decompress,
         FunctionFlags::DETERMINISTIC,
     )?;
+
+    let key = DbKey::for_handle(db.cast());
+
+    on_close::on_close(db, move |closed_db| {
+        cache::remove_connection_cache(closed_db as usize, key);
+    })?;
 
     Ok(())
 }

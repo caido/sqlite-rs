@@ -11,6 +11,7 @@ use crate::{
 };
 
 const SAMPLE_BATCH_SIZE: usize = 64;
+const SAVEPOINT: &str = "sqlite_compress_persist_dict";
 
 pub fn train_all<C>(
     conn: &mut C,
@@ -290,7 +291,7 @@ where
         quote_literal(column_name)
     );
 
-    conn.batch_execute("BEGIN IMMEDIATE;")
+    conn.batch_execute(&format!("SAVEPOINT {SAVEPOINT};"))
         .map_err(SetupError::from_conn)?;
 
     let result = (|| -> Result<i64, SetupError> {
@@ -302,15 +303,16 @@ where
 
     match result {
         Ok(id) => {
-            conn.batch_execute("COMMIT;")
+            conn.batch_execute(&format!("RELEASE SAVEPOINT {SAVEPOINT};"))
                 .map_err(SetupError::from_conn)?;
-
             u32::try_from(id)
                 .map(DictId::new)
                 .map_err(|_| SetupError::DictTrain("dictionary id overflow".to_string()))
         }
         Err(e) => {
-            let _ = conn.batch_execute("ROLLBACK;");
+            let _ = conn.batch_execute(&format!(
+                "ROLLBACK TO SAVEPOINT {SAVEPOINT}; RELEASE SAVEPOINT {SAVEPOINT};"
+            ));
             Err(e)
         }
     }

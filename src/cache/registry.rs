@@ -11,6 +11,9 @@ use crate::{
     dict::{ColumnKey, DictId, DictKey},
 };
 
+pub static REGISTRY: LazyLock<Mutex<CacheRegistry>> =
+    LazyLock::new(|| Mutex::new(CacheRegistry::new()));
+
 pub trait CacheKeySource {
     fn db_key(&self) -> DbKey;
 }
@@ -51,8 +54,9 @@ impl CacheRegistry {
     }
 }
 
-pub static REGISTRY: LazyLock<Mutex<CacheRegistry>> =
-    LazyLock::new(|| Mutex::new(CacheRegistry::new()));
+pub(crate) fn remove_cache(key: DbKey) {
+    REGISTRY.lock().caches.remove(&key);
+}
 
 pub(crate) fn with_conn<C, R, F>(conn: &C, f: F) -> R
 where
@@ -68,4 +72,9 @@ where
 pub(crate) fn find_current_id<C: CacheKeySource>(conn: &C, column: &ColumnKey) -> Option<DictId> {
     let db_key = conn.db_key();
     REGISTRY.lock().current_id(db_key, column)
+}
+
+#[cfg(test)]
+pub(crate) fn test_has_cache(key: DbKey) -> bool {
+    REGISTRY.lock().caches.contains_key(&key)
 }

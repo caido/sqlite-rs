@@ -24,10 +24,28 @@ impl DbKey {
         let addr = ptr as usize;
         *HANDLE_KEYS.lock().entry(addr).or_default()
     }
+
+    pub(crate) fn remove_handle_if_matches(address: usize, key: DbKey) -> bool {
+        let mut handles = HANDLE_KEYS.lock();
+
+        if handles.get(&address) == Some(&key) {
+            handles.remove(&address);
+            return true;
+        }
+
+        false
+    }
 }
 
 impl Default for DbKey {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+impl DbKey {
+    pub(crate) fn test_is_mapped(address: usize) -> bool {
+        HANDLE_KEYS.lock().contains_key(&address)
     }
 }
