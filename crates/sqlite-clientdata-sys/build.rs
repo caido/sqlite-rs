@@ -1,25 +1,15 @@
-use std::{path::PathBuf, process::Command};
+use std::env;
 
 fn main() {
-    let output = Command::new("xcrun")
-        .args(["--sdk", "macosx", "--show-sdk-path"])
-        .output()
-        .expect("xcrun must be available to locate the macOS SDK");
-
-    assert!(
-        output.status.success(),
-        "xcrun could not locate the macOS SDK"
-    );
-
-    let sdk_path = PathBuf::from(
-        String::from_utf8(output.stdout)
-            .expect("SDK path is UTF-8")
-            .trim(),
-    );
+    // `libsqlite3-sys` builds its bundled SQLite for the current target and
+    // publishes the directory containing sqlite3.h / sqlite3ext.h through
+    // Cargo's `links = "sqlite3"` metadata.
+    let sqlite_include =
+        env::var("DEP_SQLITE3_INCLUDE").expect("libsqlite3-sys must provide DEP_SQLITE3_INCLUDE");
 
     cc::Build::new()
         .file("src/clientdata.c")
-        .include(sdk_path.join("usr/include"))
+        .include(sqlite_include)
         .compile("sqlite_clientdata_shim");
 
     println!("cargo:rerun-if-changed=src/clientdata.c");

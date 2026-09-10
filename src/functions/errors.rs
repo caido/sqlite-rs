@@ -28,6 +28,8 @@ pub enum CodecError {
     SchemaRequired,
     #[error("unknown version: {0}")]
     UnknownVersion(u8),
+    #[error("connection state missing")]
+    MissingConnectionState,
 }
 
 impl From<CodecError> for sqlite_loadable::Error {

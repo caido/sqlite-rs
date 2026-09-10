@@ -40,14 +40,14 @@ pub fn sqlite_compress(context: *mut sqlite3_context, values: &[*mut sqlite3_val
     let mut conn = SqliteConn::from_context(context);
 
     let id = client_data::with_cache(db, |cache| cache.lock().current_id(&key))
-        .expect("connection state must exist");
+        .ok_or(CodecError::MissingConnectionState)?;
 
     let compressed = match id.filter(|id| id.get() != 0) {
         Some(id) => {
             let encoder = client_data::with_cache(db, |cache| {
                 get_encoder_in_cache(cache, &mut conn, key.schema(), id, DEFAULT_LEVEL)
             })
-            .expect("connection state must exist");
+            .ok_or(CodecError::MissingConnectionState)?;
 
             match encoder {
                 Ok(encoder) => compress_with_encoder(id, data, &encoder)?,

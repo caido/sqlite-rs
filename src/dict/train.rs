@@ -94,7 +94,7 @@ where
     client_data::with_cache(conn.sqlite_handle(), |cache| {
         insert_into_caches(cache, &key, dict_id, &dictionary, compression_level)
     })
-    .expect("connection state must exist");
+    .ok_or(SetupError::MissingConnectionState)?;
 
     Ok(Some(dict_id))
 }
@@ -124,7 +124,7 @@ where
     let decoder = client_data::with_cache(conn.sqlite_handle(), |cache| {
         get_decoder_in_cache(cache, conn, schema, dict_id)
     })
-    .expect("connection state must exist")
+    .ok_or(CodecError::MissingConnectionState)?
     .map_err(CodecError::DictError)?;
 
     decompress_with_decoder(payload, &decoder, len).map_err(CodecError::DecompressionFailed)

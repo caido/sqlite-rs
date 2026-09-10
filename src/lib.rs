@@ -45,17 +45,10 @@ pub unsafe extern "C" fn sqlite3_compress_init(
     }))
     .cast::<c_void>();
 
-    let rc = unsafe {
-        client_data::set(
-            p_api,
-            db,
-            c"sqlite-compress.poc",
-            raw_state,
-            Some(drop_state),
-        )
-    };
+    let rc = unsafe { client_data::set(p_api, db, client_data::NAME, raw_state, Some(drop_state)) };
 
     if rc != SQLITE_OK {
+        drop(Box::from_raw(raw_state.cast::<State>()));
         return rc;
     }
 

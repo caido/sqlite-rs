@@ -55,7 +55,7 @@ pub fn sqlite_decompress(
         let decoder = client_data::with_cache(db, |cache| {
             get_decoder_in_cache(cache, &mut conn, schema, dict_id)
         })
-        .expect("connection state must exist");
+        .ok_or(CodecError::MissingConnectionState)?;
 
         match decoder {
             Ok(decoder) => decompress_with_decoder(payload, &decoder, len)

@@ -59,7 +59,7 @@ where
             client_data::with_cache(conn.sqlite_handle(), |cache| {
                 warm_cache(cache, conn, &key, config.compression_level)
             })
-            .expect("connection state must exist")
+            .ok_or(SetupError::MissingConnectionState)?
             .map_err(|e| SetupError::DictTrain(e.to_string()))?;
         }
     }

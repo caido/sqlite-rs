@@ -14,6 +14,8 @@ pub(crate) struct State {
     pub(crate) cache: Mutex<ConnectionCache>,
 }
 
+pub(crate) const NAME: &CStr = c"sqlite-compress";
+
 static API: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
 
 pub unsafe fn initialize(api: *const sqlite3_api_routines) {
@@ -48,7 +50,7 @@ pub(crate) fn with_cache<R>(
     db: *mut sqlite3,
     f: impl FnOnce(&Mutex<ConnectionCache>) -> R,
 ) -> Option<R> {
-    let state_ptr = unsafe { get(db, c"sqlite-compress.poc") };
+    let state_ptr = unsafe { get(db, NAME) };
 
     let state = unsafe { state_ptr.cast::<State>().as_ref() }?;
 

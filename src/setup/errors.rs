@@ -14,6 +14,8 @@ pub enum SetupError {
     InvalidConfig(&'static str),
     #[error("dict train error: {0}")]
     DictTrain(String),
+    #[error("connection state missing")]
+    MissingConnectionState,
 }
 
 impl SetupError {

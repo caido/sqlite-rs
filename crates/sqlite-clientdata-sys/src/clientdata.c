@@ -8,7 +8,7 @@ int sqlite_clientdata_set(
     void *data,
     void (*destructor)(void *)
 ) {
-    if (api == 0 || api->set_clientdata == 0) {
+    if (api == 0 || api->libversion_number() < 3044000 || api->set_clientdata == 0)  {
         return SQLITE_MISUSE;
     }
 
@@ -20,7 +20,7 @@ void *sqlite_clientdata_get(
     sqlite3 *db,
     const char *name
 ) {
-    if (api == 0 || api->get_clientdata == 0) {
+    if (api == 0 || api->libversion_number() < 3044000 || api->set_clientdata == 0) {
         return 0;
     }
 

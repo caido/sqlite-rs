@@ -7,3 +7,8 @@ build = "build.rs"
 
 [build-dependencies]
 cc = "1"
+# Provides a recent, bundled sqlite3ext.h and exposes its directory to this
+# build script as DEP_SQLITE3_INCLUDE.  This avoids relying on a host SDK.
+
+[dependencies]
+libsqlite3-sys = { version = "0.30.1", features = ["bundled"] }
