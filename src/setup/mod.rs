@@ -11,12 +11,10 @@ use dict::init_dict;
 pub use errors::SetupError;
 use views::init_view;
 
-use crate::cache::CacheKeySource;
-
 /// Create decode views and the dictionary store for [`SetupConfig`] tables, then warm the dict cache.
 pub fn setup<C>(conn: &mut C, config: &SetupConfig) -> Result<(), SetupError>
 where
-    C: SetupConnection + CacheKeySource,
+    C: SetupConnection,
 {
     config.validate()?;
 

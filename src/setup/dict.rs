@@ -2,7 +2,8 @@ use std::collections::HashSet;
 
 use super::{SetupConfig, SetupConnection, SetupError};
 use crate::{
-    cache::{warm_cache, CacheKeySource},
+    cache::warm_cache,
+    client_data,
     dict::{ColumnKey, DICT_TABLE_NAME},
     setup::SqlIdent,
 };
@@ -43,7 +44,7 @@ where
 /// the dictionary is cached in memory.
 pub(super) fn init_dict<C>(conn: &mut C, config: &SetupConfig) -> Result<(), SetupError>
 where
-    C: SetupConnection + CacheKeySource,
+    C: SetupConnection,
 {
     ensure_table_exists(conn, config)?;
 
@@ -54,8 +55,12 @@ where
                 table.name.as_str(),
                 column.name.as_str(),
             );
-            warm_cache(conn, &key, config.compression_level)
-                .map_err(|e| SetupError::DictTrain(e.to_string()))?;
+
+            client_data::with_cache(conn.sqlite_handle(), |cache| {
+                warm_cache(cache, conn, &key, config.compression_level)
+            })
+            .expect("connection state must exist")
+            .map_err(|e| SetupError::DictTrain(e.to_string()))?;
         }
     }
 

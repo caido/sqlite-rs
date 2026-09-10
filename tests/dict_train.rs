@@ -10,7 +10,7 @@ use common::DEFAULT_MAX_SAMPLES;
 #[test]
 fn train_persists_a_new_dictionary() {
     let sample_count = 64;
-    let conn = Connection::open_in_memory().unwrap();
+    let conn = common::open_connection();
     conn.execute_batch(
         "
         ATTACH DATABASE ':memory:' AS raw;
@@ -62,7 +62,7 @@ fn train_persists_a_new_dictionary() {
 #[test]
 fn train_persists_dictionary_per_column() {
     let sample_count = 64;
-    let conn = Connection::open_in_memory().unwrap();
+    let conn = common::open_connection();
     conn.execute_batch(
         "
         ATTACH DATABASE ':memory:' AS raw;
@@ -134,7 +134,7 @@ fn train_persists_dictionary_per_column() {
 #[test]
 fn train_skips_column_without_enough_samples() {
     let sample_count = 64;
-    let conn = Connection::open_in_memory().unwrap();
+    let conn = common::open_connection();
     conn.execute_batch(
         "
         ATTACH DATABASE ':memory:' AS raw;
@@ -199,7 +199,7 @@ fn train_skips_column_without_enough_samples() {
 #[test]
 fn train_by_column_persists_one_column() {
     let sample_count = 64;
-    let conn = Connection::open_in_memory().unwrap();
+    let conn = common::open_connection();
     conn.execute_batch(
         "
         ATTACH DATABASE ':memory:' AS raw;
@@ -313,7 +313,7 @@ fn insert_samples(conn: &Connection, count: usize) {
 #[test]
 fn train_stores_row_count() {
     let sample_count = 64;
-    let conn = Connection::open_in_memory().unwrap();
+    let conn = common::open_connection();
 
     setup_raw_table(&conn);
     insert_samples(&conn, sample_count);
@@ -343,7 +343,7 @@ fn train_stores_row_count() {
 #[test]
 fn train_skips_when_growth_below_threshold() {
     let sample_count = 64;
-    let conn = Connection::open_in_memory().unwrap();
+    let conn = common::open_connection();
 
     setup_raw_table(&conn);
     insert_samples(&conn, sample_count);
@@ -375,7 +375,7 @@ fn train_retrains_when_growth_reaches_threshold() {
     let prior_row_count = 100_i64;
     let sample_count = (prior_row_count as usize) + DEFAULT_RETRAIN_GROWTH;
 
-    let conn = Connection::open_in_memory().unwrap();
+    let conn = common::open_connection();
     setup_raw_table(&conn);
     insert_samples(&conn, sample_count);
 
@@ -409,7 +409,7 @@ fn train_retrains_when_growth_reaches_threshold() {
 #[test]
 fn train_all_marks_dict_as_current() {
     let sample_count = 64;
-    let conn = Connection::open_in_memory().unwrap();
+    let conn = common::open_connection();
     conn.execute_batch(
         "
         ATTACH DATABASE ':memory:' AS raw;

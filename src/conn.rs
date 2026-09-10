@@ -8,10 +8,7 @@ use sqlite_loadable::{
     prelude::*,
 };
 
-use crate::{
-    cache::{CacheKeySource, DbKey},
-    setup::DictStore,
-};
+use crate::setup::DictStore;
 
 const SQLITE_OK: i32 = 0;
 const SQLITE_ROW: i32 = 100;
@@ -19,22 +16,12 @@ const SQLITE_DONE: i32 = 101;
 
 pub struct SqliteConn {
     db: *mut sqlite3,
-    key: DbKey,
 }
 
 impl SqliteConn {
     pub fn from_context(context: *mut sqlite3_context) -> Self {
         let db = sqlite_loadable::api::context_db_handle(context);
-        Self {
-            db,
-            key: DbKey::for_handle(db as *mut std::ffi::c_void),
-        }
-    }
-}
-
-impl CacheKeySource for SqliteConn {
-    fn db_key(&self) -> DbKey {
-        self.key
+        Self { db }
     }
 }
 

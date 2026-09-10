@@ -1,4 +1,3 @@
-use rusqlite::Connection;
 use sqlite_compress::{
     setup, SchemaName, SetupColumn, SetupConfig, SetupError, SetupTable, TableName, DEFAULT_LEVEL,
     DEFAULT_RETRAIN_GROWTH,
@@ -19,7 +18,7 @@ fn invalid_config(column: SetupColumn) -> SetupConfig {
 
 #[test]
 fn setup_skips_existing_view() {
-    let conn = Connection::open_in_memory().unwrap();
+    let conn = common::open_connection();
 
     let view_name = "__compress_decoded_requests_raw";
 
@@ -61,7 +60,7 @@ fn setup_skips_existing_view() {
 
 #[test]
 fn setup_creates_view() {
-    let conn = Connection::open_in_memory().unwrap();
+    let conn = common::open_connection();
     conn.execute_batch(
         r#"
         ATTACH DATABASE ':memory:' AS raw;
@@ -101,7 +100,7 @@ fn setup_creates_view() {
 
 #[test]
 fn setup_creates_one_view_per_table() {
-    let conn = Connection::open_in_memory().unwrap();
+    let conn = common::open_connection();
     conn.execute_batch(
         r#"
         ATTACH DATABASE ':memory:' AS raw;
@@ -152,7 +151,7 @@ fn setup_creates_one_view_per_table() {
 
 #[test]
 fn setup_rejects_missing_column() {
-    let conn = Connection::open_in_memory().unwrap();
+    let conn = common::open_connection();
     conn.execute_batch(
         r#"
     ATTACH DATABASE ':memory:' AS raw;
@@ -186,7 +185,7 @@ fn setup_rejects_missing_column() {
 
 #[test]
 fn setup_rejects_missing_table() {
-    let conn = Connection::open_in_memory().unwrap();
+    let conn = common::open_connection();
     conn.execute_batch(
         r#"
     ATTACH DATABASE ':memory:' AS raw;
@@ -215,7 +214,7 @@ fn setup_rejects_missing_table() {
 
 #[test]
 fn setup_rejects_zero_retrain_growth() {
-    let conn = Connection::open_in_memory().unwrap();
+    let conn = common::open_connection();
     conn.execute_batch(
         r#"
         ATTACH DATABASE ':memory:' AS raw;
@@ -240,7 +239,7 @@ fn setup_rejects_zero_retrain_growth() {
 
 #[test]
 fn setup_rejects_zero_min_samples() {
-    let conn = Connection::open_in_memory().unwrap();
+    let conn = common::open_connection();
     conn.execute_batch(
         r#"
         ATTACH DATABASE ':memory:' AS raw;
@@ -265,7 +264,7 @@ fn setup_rejects_zero_min_samples() {
 
 #[test]
 fn setup_rejects_zero_max_samples() {
-    let conn = Connection::open_in_memory().unwrap();
+    let conn = common::open_connection();
     conn.execute_batch(
         r#"
         ATTACH DATABASE ':memory:' AS raw;
@@ -290,7 +289,7 @@ fn setup_rejects_zero_max_samples() {
 
 #[test]
 fn setup_rejects_max_samples_below_min() {
-    let conn = Connection::open_in_memory().unwrap();
+    let conn = common::open_connection();
     conn.execute_batch(
         r#"
         ATTACH DATABASE ':memory:' AS raw;

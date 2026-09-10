@@ -1,5 +1,7 @@
-use rusqlite::Connection;
-use sqlite_compress::{CacheKeySource, DbKey, DictStore, SetupConnection};
+use std::sync::Once;
+
+use rusqlite::{ffi::sqlite3_auto_extension, Connection};
+use sqlite_compress::{sqlite3_compress_init, DictStore, SetupConnection};
 
 #[allow(dead_code)]
 pub const DEFAULT_MIN_SAMPLES: usize = 1000;
@@ -7,21 +9,11 @@ pub const DEFAULT_MAX_SAMPLES: usize = 10000;
 
 pub struct RusqliteConn<'a> {
     conn: &'a Connection,
-    key: DbKey,
 }
 
 impl<'a> RusqliteConn<'a> {
     pub fn new(conn: &'a Connection) -> Self {
-        Self {
-            conn,
-            key: DbKey::new(),
-        }
-    }
-}
-
-impl CacheKeySource for RusqliteConn<'_> {
-    fn db_key(&self) -> DbKey {
-        self.key
+        Self { conn }
     }
 }
 
@@ -35,6 +27,10 @@ impl DictStore for RusqliteConn<'_> {
 }
 
 impl SetupConnection for RusqliteConn<'_> {
+    fn sqlite_handle(&self) -> *mut sqlite_loadable::ext::sqlite3 {
+        unsafe { self.conn.handle().cast() }
+    }
+
     fn query_strings(&mut self, sql: &str) -> Result<Vec<String>, Self::Error> {
         let mut stmt = self.conn.prepare(sql)?;
         let rows = stmt.query_map([], |row| row.get(0))?;
@@ -65,4 +61,17 @@ impl SetupConnection for RusqliteConn<'_> {
         }
         Ok(())
     }
+}
+
+#[allow(clippy::missing_transmute_annotations)]
+pub fn open_connection() -> Connection {
+    static REGISTER_EXTENSION: Once = Once::new();
+
+    REGISTER_EXTENSION.call_once(|| unsafe {
+        sqlite3_auto_extension(Some(std::mem::transmute(
+            sqlite3_compress_init as *const (),
+        )));
+    });
+
+    Connection::open_in_memory().unwrap()
 }

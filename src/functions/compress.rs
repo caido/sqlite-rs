@@ -2,7 +2,8 @@ use sqlite_loadable::{api, prelude::*, Result};
 use zstd::bulk::Compressor;
 
 use crate::{
-    cache::{find_current_id, get_encoder},
+    cache::get_encoder_in_cache,
+    client_data,
     conn::SqliteConn,
     dict::{errors::DictError, ColumnKey, DictId},
     functions::{errors::CodecError, header::wrap, types::Level, DEFAULT_LEVEL},
@@ -34,15 +35,26 @@ pub fn sqlite_compress(context: *mut sqlite3_context, values: &[*mut sqlite3_val
     let column = api::value_text(&values[3])?;
     let key = ColumnKey::new(schema, table, column);
 
+    let db = api::context_db_handle(context);
+
     let mut conn = SqliteConn::from_context(context);
-    let id = find_current_id(&conn, &key);
+
+    let id = client_data::with_cache(db, |cache| cache.lock().current_id(&key))
+        .expect("connection state must exist");
 
     let compressed = match id.filter(|id| id.get() != 0) {
-        Some(id) => match get_encoder(&mut conn, key.schema(), id, DEFAULT_LEVEL) {
-            Ok(encoder) => compress_with_encoder(id, data, &encoder)?,
-            Err(DictError::NotReady) => compress_raw(data, DEFAULT_LEVEL)?,
-            Err(e) => return Err(CodecError::DictError(e).into()),
-        },
+        Some(id) => {
+            let encoder = client_data::with_cache(db, |cache| {
+                get_encoder_in_cache(cache, &mut conn, key.schema(), id, DEFAULT_LEVEL)
+            })
+            .expect("connection state must exist");
+
+            match encoder {
+                Ok(encoder) => compress_with_encoder(id, data, &encoder)?,
+                Err(DictError::NotReady) => compress_raw(data, DEFAULT_LEVEL)?,
+                Err(e) => return Err(CodecError::DictError(e).into()),
+            }
+        }
         None => compress_raw(data, DEFAULT_LEVEL)?,
     };
 

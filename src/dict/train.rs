@@ -1,5 +1,6 @@
 use crate::{
-    cache::{get_decoder, insert_into_caches, CacheKeySource},
+    cache::{get_decoder_in_cache, insert_into_caches},
+    client_data,
     dict::{
         types::{ColumnKey, DictId},
         DICT_TABLE_NAME,
@@ -19,7 +20,7 @@ pub fn train_all<C>(
     dict_capacity: usize,
 ) -> Result<Vec<DictId>, SetupError>
 where
-    C: SetupConnection + CacheKeySource,
+    C: SetupConnection,
 {
     let mut dict_ids = Vec::new();
 
@@ -41,7 +42,7 @@ pub fn train_by_column<C>(
     dict_capacity: usize,
 ) -> Result<Option<DictId>, SetupError>
 where
-    C: SetupConnection + CacheKeySource,
+    C: SetupConnection,
 {
     validate_config(table.columns.len(), dict_capacity)?;
 
@@ -90,7 +91,10 @@ where
         available,
     )?;
 
-    insert_into_caches(conn, &key, dict_id, &dictionary, compression_level);
+    client_data::with_cache(conn.sqlite_handle(), |cache| {
+        insert_into_caches(cache, &key, dict_id, &dictionary, compression_level)
+    })
+    .expect("connection state must exist");
 
     Ok(Some(dict_id))
 }
@@ -101,7 +105,7 @@ pub(crate) fn decode_sample<C>(
     schema: &str,
 ) -> Result<Vec<u8>, CodecError>
 where
-    C: SetupConnection + CacheKeySource,
+    C: SetupConnection,
 {
     let (header, payload) = match Header::parse(blob) {
         Ok(parsed) => parsed,
@@ -117,7 +121,12 @@ where
         return decompress_raw(payload, len);
     }
 
-    let decoder = get_decoder(conn, schema, dict_id).map_err(CodecError::DictError)?;
+    let decoder = client_data::with_cache(conn.sqlite_handle(), |cache| {
+        get_decoder_in_cache(cache, conn, schema, dict_id)
+    })
+    .expect("connection state must exist")
+    .map_err(CodecError::DictError)?;
+
     decompress_with_decoder(payload, &decoder, len).map_err(CodecError::DecompressionFailed)
 }
 
@@ -205,7 +214,7 @@ fn build_dictionary<C>(
     dict_capacity: usize,
 ) -> Result<Vec<u8>, SetupError>
 where
-    C: SetupConnection + CacheKeySource,
+    C: SetupConnection,
 {
     let mut corpus = Vec::new();
     let mut sizes = Vec::new();

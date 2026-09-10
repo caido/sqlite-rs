@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use sqlite_loadable::ext::sqlite3;
+
 use crate::{
     functions::Level,
     utils::{quote_identifier, quote_qualified},
@@ -199,6 +201,7 @@ pub trait DictStore {
 }
 
 pub trait SetupConnection: DictStore {
+    fn sqlite_handle(&self) -> *mut sqlite3;
     fn query_strings(&mut self, sql: &str) -> Result<Vec<String>, Self::Error>;
     fn batch_execute(&mut self, sql: &str) -> Result<(), Self::Error>;
     fn query_i64(&mut self, sql: &str) -> Result<i64, Self::Error>;

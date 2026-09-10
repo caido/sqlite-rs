@@ -2,7 +2,8 @@ use sqlite_loadable::{api, prelude::*, Result};
 use zstd::bulk::Decompressor;
 
 use crate::{
-    cache::get_decoder,
+    cache::get_decoder_in_cache,
+    client_data,
     conn::SqliteConn,
     functions::{
         errors::CodecError::{self},
@@ -49,7 +50,14 @@ pub fn sqlite_decompress(
     let decompressed = if dict_id.get() != 0 {
         let schema = schema.ok_or(CodecError::SchemaRequired)?;
         let mut conn = SqliteConn::from_context(context);
-        match get_decoder(&mut conn, schema, dict_id) {
+        let db = api::context_db_handle(context);
+
+        let decoder = client_data::with_cache(db, |cache| {
+            get_decoder_in_cache(cache, &mut conn, schema, dict_id)
+        })
+        .expect("connection state must exist");
+
+        match decoder {
             Ok(decoder) => decompress_with_decoder(payload, &decoder, len)
                 .map_err(CodecError::DecompressionFailed)?,
             Err(DictError::NotReady) => decompress_raw(payload, len)?,

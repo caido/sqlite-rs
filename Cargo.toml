@@ -9,9 +9,14 @@ zstd = { version = "0.13.3", features = ["zdict_builder"] }
 thiserror = "2.0.19"
 parking_lot = "0.12.4"
 zerocopy = { version = "0.8.56", features = ["derive"] }
+sqlite-clientdata-sys = { path = "crates/sqlite-clientdata-sys" }
 
 [dev-dependencies]
 rusqlite = { version = "0.32", features = ["bundled"] }
 
 [lib]
 crate-type=["cdylib","rlib"]
+
+[workspace]
+members = [".", "crates/sqlite-clientdata-sys"]
+resolver = "2"

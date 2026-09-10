@@ -1,148 +1,145 @@
 use std::sync::Arc;
 
+use parking_lot::Mutex;
 use zstd::dict::{DecoderDictionary, EncoderDictionary};
 
 use crate::{
-    cache::registry::{with_conn, CacheKeySource, REGISTRY},
+    cache::ConnectionCache,
     dict::{load_raw_dict, read_current_id, DictKey},
     functions::Level,
     ColumnKey, DictError, DictId, DictStore, SetupConnection,
 };
 
-pub(crate) fn get_encoder<C>(
+pub(crate) fn get_encoder_in_cache<C>(
+    cache: &Mutex<ConnectionCache>,
     conn: &mut C,
     schema: &str,
     dict_id: DictId,
     level: Level,
 ) -> Result<Arc<EncoderDictionary<'static>>, DictError>
 where
-    C: DictStore + CacheKeySource,
+    C: DictStore,
 {
     let key = DictKey::new(schema, dict_id);
-    let db_key = conn.db_key();
 
-    if let Some(dict) = REGISTRY.lock().peek_encoder(db_key, &key) {
+    if let Some(dict) = cache.lock().encoders.peek(&key) {
         return Ok(dict);
     }
 
     let raw = load_raw_dict(&key, conn)?;
-    let encoder = Arc::new(EncoderDictionary::copy(&raw, level.get()));
-    let mut registry = REGISTRY.lock();
-    let cache = registry.cache_for(db_key);
+
+    let mut cache = cache.lock();
 
     if let Some(dict) = cache.encoders.get(&key) {
         return Ok(dict);
     }
 
+    let encoder = Arc::new(EncoderDictionary::copy(&raw, level.get()));
     cache.encoders.insert(key, encoder.clone());
+
     Ok(encoder)
 }
 
-pub(crate) fn get_decoder<C>(
+pub(crate) fn get_decoder_in_cache<C>(
+    cache: &Mutex<ConnectionCache>,
     conn: &mut C,
     schema: &str,
     dict_id: DictId,
 ) -> Result<Arc<DecoderDictionary<'static>>, DictError>
 where
-    C: DictStore + CacheKeySource,
+    C: DictStore,
 {
     let key = DictKey::new(schema, dict_id);
-    let db_key = conn.db_key();
 
-    if let Some(dict) = REGISTRY.lock().peek_decoder(db_key, &key) {
+    if let Some(dict) = cache.lock().decoders.peek(&key) {
         return Ok(dict);
     }
 
     let raw = load_raw_dict(&key, conn)?;
-    let decoder = Arc::new(DecoderDictionary::copy(&raw));
-    let mut registry = REGISTRY.lock();
-    let cache = registry.cache_for(db_key);
+
+    let mut cache = cache.lock();
 
     if let Some(dict) = cache.decoders.get(&key) {
         return Ok(dict);
     }
 
+    let decoder = Arc::new(DecoderDictionary::copy(&raw));
     cache.decoders.insert(key, decoder.clone());
+
     Ok(decoder)
 }
 
-pub(crate) fn warm_cache<C>(conn: &mut C, column: &ColumnKey, level: Level) -> Result<(), DictError>
+pub(crate) fn warm_cache<C>(
+    cache: &Mutex<ConnectionCache>,
+    conn: &mut C,
+    column: &ColumnKey,
+    level: Level,
+) -> Result<(), DictError>
 where
-    C: SetupConnection + CacheKeySource,
+    C: SetupConnection,
 {
     let dict_id = match read_current_id(conn, column)? {
         Some(id) => id,
         None => {
-            with_conn(conn, |cache| cache.clear_current_id(column));
+            cache.lock().clear_current_id(column);
             return Ok(());
         }
     };
 
-    with_conn(conn, |cache| cache.set_current_id(column.clone(), dict_id));
-    get_encoder(conn, column.schema(), dict_id, level)?;
-    get_decoder(conn, column.schema(), dict_id)?;
+    cache.lock().set_current_id(column.clone(), dict_id);
+
+    get_encoder_in_cache(cache, conn, column.schema(), dict_id, level)?;
+    get_decoder_in_cache(cache, conn, column.schema(), dict_id)?;
 
     Ok(())
 }
 
-pub(crate) fn insert_into_caches<C: CacheKeySource>(
-    conn: &C,
+pub(crate) fn insert_into_caches(
+    cache: &Mutex<ConnectionCache>,
     column: &ColumnKey,
     dict_id: DictId,
     dictionary: &[u8],
     level: Level,
 ) {
-    with_conn(conn, |cache| {
-        cache.set_current_id(column.clone(), dict_id);
+    let mut cache = cache.lock();
 
-        let key = DictKey::new(column.schema(), dict_id);
-        cache.encoders.insert(
-            key.clone(),
-            Arc::new(EncoderDictionary::copy(dictionary, level.get())),
-        );
-        cache
-            .decoders
-            .insert(key, Arc::new(DecoderDictionary::copy(dictionary)));
-    });
+    cache.set_current_id(column.clone(), dict_id);
+
+    let key = DictKey::new(column.schema(), dict_id);
+
+    cache.encoders.insert(
+        key.clone(),
+        Arc::new(EncoderDictionary::copy(dictionary, level.get())),
+    );
+
+    cache
+        .decoders
+        .insert(key, Arc::new(DecoderDictionary::copy(dictionary)));
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
+    use parking_lot::Mutex;
     use rusqlite::Connection;
     use zstd::{
         bulk::{Compressor, Decompressor},
         dict::{DecoderDictionary, EncoderDictionary},
     };
 
-    use super::{get_decoder, get_encoder};
-    use crate::{
-        cache::{CacheKeySource, DbKey},
-        dict::DictId,
-        setup::DictStore,
-        DEFAULT_LEVEL,
-    };
+    use super::{get_decoder_in_cache, get_encoder_in_cache};
+    use crate::{cache::ConnectionCache, dict::DictId, setup::DictStore, DEFAULT_LEVEL};
 
     const SCHEMA: &str = "main";
 
     struct TestConn<'a> {
         conn: &'a Connection,
-        key: DbKey,
     }
 
     impl<'a> TestConn<'a> {
         fn new(conn: &'a Connection) -> Self {
-            Self {
-                conn,
-                key: DbKey::new(),
-            }
-        }
-    }
-
-    impl CacheKeySource for TestConn<'_> {
-        fn db_key(&self) -> DbKey {
-            self.key
+            Self { conn }
         }
     }
 
@@ -206,13 +203,20 @@ mod tests {
 
     #[test]
     fn insert_dict_encode_decode_equals_input() {
+        let cache = Mutex::new(ConnectionCache::new());
         let conn = Connection::open_in_memory().unwrap();
         let id = DictId::new(2_001);
         insert_trained_dict(&conn, id, "requests_raw", "data");
 
         let mut wrapper = TestConn::new(&conn);
-        let encoder = expect_encoder(get_encoder(&mut wrapper, SCHEMA, id, DEFAULT_LEVEL));
-        let decoder = expect_decoder(get_decoder(&mut wrapper, SCHEMA, id));
+        let encoder = expect_encoder(get_encoder_in_cache(
+            &cache,
+            &mut wrapper,
+            SCHEMA,
+            id,
+            DEFAULT_LEVEL,
+        ));
+        let decoder = expect_decoder(get_decoder_in_cache(&cache, &mut wrapper, SCHEMA, id));
 
         let original = b"GET /api/users/42 HTTP/1.1\r\nHost: example.com\r\n\r\n";
         let mut compressor = Compressor::with_prepared_dictionary(&encoder).unwrap();
@@ -228,13 +232,20 @@ mod tests {
 
     #[test]
     fn roundtrip_multiple_payloads_with_same_dict() {
+        let cache = Mutex::new(ConnectionCache::new());
         let conn = Connection::open_in_memory().unwrap();
         let id = DictId::new(2_002);
         insert_trained_dict(&conn, id, "requests_raw", "data");
 
         let mut wrapper = TestConn::new(&conn);
-        let encoder = expect_encoder(get_encoder(&mut wrapper, SCHEMA, id, DEFAULT_LEVEL));
-        let decoder = expect_decoder(get_decoder(&mut wrapper, SCHEMA, id));
+        let encoder = expect_encoder(get_encoder_in_cache(
+            &cache,
+            &mut wrapper,
+            SCHEMA,
+            id,
+            DEFAULT_LEVEL,
+        ));
+        let decoder = expect_decoder(get_decoder_in_cache(&cache, &mut wrapper, SCHEMA, id));
 
         let payloads: [&[u8]; 3] = [
             b"GET /api/users/1 HTTP/1.1\r\nHost: example.com\r\n\r\n",
@@ -255,61 +266,90 @@ mod tests {
 
     #[test]
     fn get_decoder_not_ready_when_table_empty() {
+        let cache = Mutex::new(ConnectionCache::new());
         let conn = Connection::open_in_memory().unwrap();
         ensure_dicts_table(&conn);
         let mut wrapper = TestConn::new(&conn);
 
         assert!(matches!(
-            get_decoder(&mut wrapper, SCHEMA, DictId::new(90_002)),
+            get_decoder_in_cache(&cache, &mut wrapper, SCHEMA, DictId::new(90_002)),
             Err(crate::DictError::NotReady)
         ));
     }
 
     #[test]
     fn get_encoder_not_ready_when_table_empty() {
+        let cache = Mutex::new(ConnectionCache::new());
         let conn = Connection::open_in_memory().unwrap();
         ensure_dicts_table(&conn);
         let mut wrapper = TestConn::new(&conn);
         assert!(matches!(
-            get_encoder(&mut wrapper, SCHEMA, DictId::new(90_001), DEFAULT_LEVEL),
+            get_encoder_in_cache(
+                &cache,
+                &mut wrapper,
+                SCHEMA,
+                DictId::new(90_001),
+                DEFAULT_LEVEL
+            ),
             Err(crate::DictError::NotReady)
         ));
     }
 
     #[test]
     fn get_encoder_loads_and_caches() {
+        let cache = Mutex::new(ConnectionCache::new());
         let conn = Connection::open_in_memory().unwrap();
         let id = DictId::new(1_001);
         insert_trained_dict(&conn, id, "requests_raw", "data");
         let mut wrapper = TestConn::new(&conn);
 
-        let first = expect_encoder(get_encoder(&mut wrapper, SCHEMA, id, DEFAULT_LEVEL));
-        let second = expect_encoder(get_encoder(&mut wrapper, SCHEMA, id, DEFAULT_LEVEL));
+        let first = expect_encoder(get_encoder_in_cache(
+            &cache,
+            &mut wrapper,
+            SCHEMA,
+            id,
+            DEFAULT_LEVEL,
+        ));
+        let second = expect_encoder(get_encoder_in_cache(
+            &cache,
+            &mut wrapper,
+            SCHEMA,
+            id,
+            DEFAULT_LEVEL,
+        ));
         assert!(Arc::ptr_eq(&first, &second));
     }
 
     #[test]
     fn get_decoder_loads_and_caches() {
+        let cache = Mutex::new(ConnectionCache::new());
         let conn = Connection::open_in_memory().unwrap();
         let id = DictId::new(1_002);
         insert_trained_dict(&conn, id, "requests_raw", "data");
         let mut wrapper = TestConn::new(&conn);
 
-        let first = expect_decoder(get_decoder(&mut wrapper, SCHEMA, id));
-        let second = expect_decoder(get_decoder(&mut wrapper, SCHEMA, id));
+        let first = expect_decoder(get_decoder_in_cache(&cache, &mut wrapper, SCHEMA, id));
+        let second = expect_decoder(get_decoder_in_cache(&cache, &mut wrapper, SCHEMA, id));
 
         assert!(Arc::ptr_eq(&first, &second));
     }
 
     #[test]
     fn get_encoder_and_decoder_roundtrip() {
+        let cache = Mutex::new(ConnectionCache::new());
         let conn = Connection::open_in_memory().unwrap();
         let id = DictId::new(1_003);
         insert_trained_dict(&conn, id, "requests_raw", "data");
         let mut wrapper = TestConn::new(&conn);
 
-        let encoder = expect_encoder(get_encoder(&mut wrapper, SCHEMA, id, DEFAULT_LEVEL));
-        let decoder = expect_decoder(get_decoder(&mut wrapper, SCHEMA, id));
+        let encoder = expect_encoder(get_encoder_in_cache(
+            &cache,
+            &mut wrapper,
+            SCHEMA,
+            id,
+            DEFAULT_LEVEL,
+        ));
+        let decoder = expect_decoder(get_decoder_in_cache(&cache, &mut wrapper, SCHEMA, id));
 
         let original = b"GET /api/users/42 HTTP/1.1\r\nHost: example.com\r\n\r\n";
         let mut compressor = Compressor::with_prepared_dictionary(&encoder).unwrap();
@@ -354,6 +394,7 @@ mod tests {
 
     #[test]
     fn get_encoder_and_decoder_isolate_same_id_across_schemas() {
+        let cache = Mutex::new(ConnectionCache::new());
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(
             r#"
@@ -391,20 +432,43 @@ mod tests {
 
         let mut wrapper = TestConn::new(&conn);
 
-        let raw_enc = expect_encoder(get_encoder(&mut wrapper, "raw", id, DEFAULT_LEVEL));
-        let archive_enc = expect_encoder(get_encoder(&mut wrapper, "archive", id, DEFAULT_LEVEL));
+        let raw_enc = expect_encoder(get_encoder_in_cache(
+            &cache,
+            &mut wrapper,
+            "raw",
+            id,
+            DEFAULT_LEVEL,
+        ));
+        let archive_enc = expect_encoder(get_encoder_in_cache(
+            &cache,
+            &mut wrapper,
+            "archive",
+            id,
+            DEFAULT_LEVEL,
+        ));
         assert!(!Arc::ptr_eq(&raw_enc, &archive_enc));
 
-        let raw_enc_again = expect_encoder(get_encoder(&mut wrapper, "raw", id, DEFAULT_LEVEL));
+        let raw_enc_again = expect_encoder(get_encoder_in_cache(
+            &cache,
+            &mut wrapper,
+            "raw",
+            id,
+            DEFAULT_LEVEL,
+        ));
         assert!(Arc::ptr_eq(&raw_enc, &raw_enc_again));
 
-        expect_decoder(get_decoder(&mut wrapper, "archive", archive_only));
+        expect_decoder(get_decoder_in_cache(
+            &cache,
+            &mut wrapper,
+            "archive",
+            archive_only,
+        ));
         assert!(matches!(
-            get_encoder(&mut wrapper, "raw", archive_only, DEFAULT_LEVEL),
+            get_encoder_in_cache(&cache, &mut wrapper, "raw", archive_only, DEFAULT_LEVEL),
             Err(crate::DictError::NotReady)
         ));
         assert!(matches!(
-            get_decoder(&mut wrapper, "raw", archive_only),
+            get_decoder_in_cache(&cache, &mut wrapper, "raw", archive_only),
             Err(crate::DictError::NotReady)
         ));
     }

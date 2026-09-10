@@ -1,4 +1,3 @@
-use rusqlite::Connection;
 use sqlite_compress::{
     setup, SchemaName, SetupColumn, SetupConfig, SetupTable, TableName, DEFAULT_LEVEL,
     DEFAULT_RETRAIN_GROWTH,
@@ -8,7 +7,7 @@ use common::{DEFAULT_MAX_SAMPLES, DEFAULT_MIN_SAMPLES};
 
 #[test]
 fn setup_table_does_not_exist() {
-    let conn = Connection::open_in_memory().unwrap();
+    let conn = common::open_connection();
     conn.execute_batch(
         r#"
          ATTACH DATABASE ':memory:' AS raw;
@@ -46,7 +45,7 @@ fn setup_table_does_not_exist() {
 
 #[test]
 fn setup_table_already_exists() {
-    let conn = Connection::open_in_memory().unwrap();
+    let conn = common::open_connection();
     conn.execute_batch(
         r#"
             ATTACH DATABASE ':memory:' AS raw;
@@ -93,7 +92,7 @@ fn setup_table_already_exists() {
 
 #[test]
 fn setup_creates_dict_table_per_schema() {
-    let conn = Connection::open_in_memory().unwrap();
+    let conn = common::open_connection();
     conn.execute_batch(
         r#"
         ATTACH DATABASE ':memory:' AS raw;
