@@ -1,7 +1,19 @@
 use std::fmt::Display;
 
+use crate::DictError;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DictId(u32);
+
+impl TryFrom<i64> for DictId {
+    type Error = DictError;
+
+    fn try_from(value: i64) -> Result<Self, Self::Error> {
+        u32::try_from(value)
+            .map(DictId::new)
+            .map_err(|_| DictError::NotFound(DictId::new(0)))
+    }
+}
 
 impl From<u32> for DictId {
     fn from(value: u32) -> Self {
@@ -26,13 +38,13 @@ impl Display for DictId {
 
 /// Cache key for a prepared dictionary: ids are unique per schema, not globally.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct DictKey {
+pub(crate) struct DictKey {
     pub schema: String,
     pub id: DictId,
 }
 
 impl DictKey {
-    pub fn new(schema: &str, id: DictId) -> Self {
+    pub(crate) fn new(schema: &str, id: DictId) -> Self {
         Self {
             schema: schema.to_string(),
             id,

@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::dict::types::DictKey;
+use crate::dict::DictKey;
 
 const MAX_CACHED_DICTS: usize = 5;
 
@@ -11,30 +11,30 @@ const MAX_CACHED_DICTS: usize = 5;
 ///
 /// Holds at most [`MAX_CACHED_DICTS`] entries. [`DictLru::get`] and [`DictLru::insert`]
 /// promote a key to most-recent; [`DictLru::peek`] does not.
-pub struct DictLru<T> {
+pub(crate) struct DictLru<T> {
     map: HashMap<DictKey, Arc<T>>,
     order: VecDeque<DictKey>,
 }
 
 impl<T> DictLru<T> {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             map: HashMap::with_capacity(MAX_CACHED_DICTS),
             order: VecDeque::with_capacity(MAX_CACHED_DICTS),
         }
     }
 
-    pub fn get(&mut self, key: &DictKey) -> Option<Arc<T>> {
+    pub(crate) fn get(&mut self, key: &DictKey) -> Option<Arc<T>> {
         let value = self.map.get(key)?.clone();
         self.touch(key);
         Some(value)
     }
 
-    pub fn peek(&self, key: &DictKey) -> Option<Arc<T>> {
+    pub(crate) fn peek(&self, key: &DictKey) -> Option<Arc<T>> {
         self.map.get(key).cloned()
     }
 
-    pub fn insert(&mut self, key: DictKey, value: Arc<T>) {
+    pub(crate) fn insert(&mut self, key: DictKey, value: Arc<T>) {
         if let Entry::Occupied(mut e) = self.map.entry(key.clone()) {
             e.insert(value);
             self.touch(&key);
@@ -59,7 +59,7 @@ impl<T> DictLru<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dict::types::DictId;
+    use crate::dict::DictId;
 
     fn key(schema: &str, n: u32) -> DictKey {
         DictKey::new(schema, DictId::new(n))

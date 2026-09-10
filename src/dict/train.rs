@@ -1,28 +1,25 @@
 use crate::{
-    decompress,
+    cache::{get_decoder, insert_into_caches, CacheKeySource},
     dict::{
-        dict_table, insert_into_caches,
         types::{ColumnKey, DictId},
+        DICT_TABLE_NAME,
     },
-    functions::{CodecError, Level},
+    functions::{decompress_raw, decompress_with_decoder, CodecError, Level},
     setup::{SetupConfig, SetupConnection, SetupError, SqlIdent},
-    utils::quote_literal,
-    SetupColumn, SetupTable, CURRENT_DICT_IDS,
+    utils::{quote_literal, quote_qualified},
+    Header, SetupColumn, SetupTable,
 };
 
-/// Train the dictionary if the condition is met (enough samples and retrain growth).
-/// It is done by collecting the samples from the tables, and building the dictionary.
-/// Then, the dictionary is persisted in the database.
-/// Finally, the dictionary is sync to the caches, sync to the cache is mandatory to ensure the dictionary is ready to be used.
-/// By [get_decoder_cached](crate::dict::get_decoder_cached), [get_encoder_cached](crate::dict::get_encoder_cached),
-/// the dictionary is cached in memory.
+const SAMPLE_BATCH_SIZE: usize = 64;
+const SAVEPOINT: &str = "sqlite_compress_persist_dict";
+
 pub fn train_all<C>(
     conn: &mut C,
     config: &SetupConfig,
     dict_capacity: usize,
 ) -> Result<Vec<DictId>, SetupError>
 where
-    C: SetupConnection,
+    C: SetupConnection + CacheKeySource,
 {
     let mut dict_ids = Vec::new();
 
@@ -44,7 +41,7 @@ pub fn train_by_column<C>(
     dict_capacity: usize,
 ) -> Result<Option<DictId>, SetupError>
 where
-    C: SetupConnection,
+    C: SetupConnection + CacheKeySource,
 {
     validate_config(table.columns.len(), dict_capacity)?;
 
@@ -55,7 +52,7 @@ where
     );
     let table_name = table.as_qualified_name();
     let column_name = column.name.quote();
-    let dict_store = dict_table(key.schema());
+    let dict_store = quote_qualified(key.schema(), DICT_TABLE_NAME);
 
     let (enough, available) =
         has_enough_samples(conn, &table_name, &column_name, column.min_samples)?;
@@ -93,26 +90,35 @@ where
         available,
     )?;
 
-    insert_into_caches(key.schema(), dict_id, &dictionary, compression_level);
-    CURRENT_DICT_IDS.lock().insert(key, dict_id);
+    insert_into_caches(conn, &key, dict_id, &dictionary, compression_level);
 
     Ok(Some(dict_id))
 }
 
-/// Returns plaintext suitable for dictionary training.
-/// Compressed blobs (sqlite-compress format) are decompressed;
-/// already-plain blobs are returned as-is.
-fn sample_for_training(blob: &[u8], schema: &str) -> Result<Vec<u8>, SetupError> {
-    match decompress(blob, Some(schema)) {
-        Ok(decoded) => Ok(decoded),
-        // Not our format → treat as already plaintext (first train)
+pub(crate) fn decode_sample<C>(
+    conn: &mut C,
+    blob: &[u8],
+    schema: &str,
+) -> Result<Vec<u8>, CodecError>
+where
+    C: SetupConnection + CacheKeySource,
+{
+    let (header, payload) = match Header::parse(blob) {
+        Ok(parsed) => parsed,
         Err(CodecError::MalformedHeader)
         | Err(CodecError::UnknownCodec(_))
-        | Err(CodecError::UnknownVersion(_)) => Ok(blob.to_vec()),
-        Err(e) => Err(SetupError::DictTrain(format!(
-            "failed to decode training sample: {e}"
-        ))),
+        | Err(CodecError::UnknownVersion(_)) => return Ok(blob.to_vec()),
+        Err(e) => return Err(e),
+    };
+
+    let dict_id = DictId::from(header.dict_id.get());
+    let len = header.uncompressed_len.get() as usize;
+    if dict_id.get() == 0 {
+        return decompress_raw(payload, len);
     }
+
+    let decoder = get_decoder(conn, schema, dict_id).map_err(CodecError::DictError)?;
+    decompress_with_decoder(payload, &decoder, len).map_err(CodecError::DecompressionFailed)
 }
 
 /// Validate the config is valid.
@@ -199,34 +205,47 @@ fn build_dictionary<C>(
     dict_capacity: usize,
 ) -> Result<Vec<u8>, SetupError>
 where
-    C: SetupConnection,
+    C: SetupConnection + CacheKeySource,
 {
     let mut corpus = Vec::new();
     let mut sizes = Vec::new();
+    let mut offset = 0usize;
+    let mut remaining = max_samples;
 
-    let sql = format!(
-        "SELECT {column_name} AS value FROM {table_name} \
-     WHERE {column_name} IS NOT NULL AND length({column_name}) > 0 \
-     ORDER BY rowid DESC \
-     LIMIT {max_samples}"
-    );
+    while remaining > 0 {
+        let batch_limit = remaining.min(SAMPLE_BATCH_SIZE);
+        let sql = format!(
+            "SELECT {column_name} AS value FROM {table_name} \
+         WHERE {column_name} IS NOT NULL AND length({column_name}) > 0 \
+         ORDER BY rowid DESC \
+         LIMIT {batch_limit} OFFSET {offset}"
+        );
 
-    let mut sample_err: Option<SetupError> = None;
+        let mut batch = Vec::new();
+        conn.for_each_blob(&sql, |blob| {
+            batch.push(blob.to_vec());
+            Ok(())
+        })
+        .map_err(SetupError::from_conn)?;
 
-    conn.for_each_blob(&sql, |blob| {
-        match sample_for_training(blob, schema) {
-            Ok(sample) => {
-                corpus.extend_from_slice(&sample);
-                sizes.push(sample.len());
-            }
-            Err(e) => sample_err = Some(e),
+        if batch.is_empty() {
+            break;
         }
-        Ok(())
-    })
-    .map_err(SetupError::from_conn)?;
 
-    if let Some(err) = sample_err {
-        return Err(err);
+        let batch_len = batch.len();
+        for blob in &batch {
+            let sample = decode_sample(conn, blob, schema).map_err(|e| {
+                SetupError::DictTrain(format!("failed to decode training sample: {e}"))
+            })?;
+            corpus.extend_from_slice(&sample);
+            sizes.push(sample.len());
+        }
+
+        offset += batch_len;
+        remaining = remaining.saturating_sub(batch_len);
+        if batch_len < batch_limit {
+            break;
+        }
     }
 
     if sizes.is_empty() {
@@ -257,19 +276,44 @@ fn persist_dictionary<C>(
 where
     C: SetupConnection,
 {
-    let sql = format!(
-        "INSERT INTO {schema_name} (dict, trained_at, table_name, column_name, row_count) \
-        VALUES (?1, strftime('%s', 'now'), {}, {}, {row_count}) \
+    let demote_sql = format!(
+        "UPDATE {schema_name} SET is_current = 0 \
+     WHERE table_name = {} AND column_name = {} AND is_current = 1",
+        quote_literal(table_name),
+        quote_literal(column_name),
+    );
+
+    let insert_sql = format!(
+        "INSERT INTO {schema_name} (dict, trained_at, table_name, column_name, row_count, is_current) \
+        VALUES (?1, strftime('%s', 'now'), {}, {}, {row_count}, 1) \
         RETURNING id",
         quote_literal(table_name),
         quote_literal(column_name)
     );
 
-    let id = conn
-        .execute_blob(&sql, dictionary)
+    conn.batch_execute(&format!("SAVEPOINT {SAVEPOINT};"))
         .map_err(SetupError::from_conn)?;
 
-    u32::try_from(id)
-        .map(DictId::new)
-        .map_err(|_| SetupError::DictTrain("dictionary id overflow".to_string()))
+    let result = (|| -> Result<i64, SetupError> {
+        conn.batch_execute(&demote_sql)
+            .map_err(SetupError::from_conn)?;
+        conn.execute_blob(&insert_sql, dictionary)
+            .map_err(SetupError::from_conn)
+    })();
+
+    match result {
+        Ok(id) => {
+            conn.batch_execute(&format!("RELEASE SAVEPOINT {SAVEPOINT};"))
+                .map_err(SetupError::from_conn)?;
+            u32::try_from(id)
+                .map(DictId::new)
+                .map_err(|_| SetupError::DictTrain("dictionary id overflow".to_string()))
+        }
+        Err(e) => {
+            let _ = conn.batch_execute(&format!(
+                "ROLLBACK TO SAVEPOINT {SAVEPOINT}; RELEASE SAVEPOINT {SAVEPOINT};"
+            ));
+            Err(e)
+        }
+    }
 }

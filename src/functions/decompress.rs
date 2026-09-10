@@ -2,8 +2,8 @@ use sqlite_loadable::{api, prelude::*, Result};
 use zstd::bulk::Decompressor;
 
 use crate::{
+    cache::get_decoder,
     conn::SqliteConn,
-    dict::{get_decoder, get_decoder_cached},
     functions::{
         errors::CodecError::{self},
         header::Header,
@@ -11,7 +11,7 @@ use crate::{
     DictError, DictId,
 };
 
-fn decompress_with_decoder(
+pub(crate) fn decompress_with_decoder(
     data: &[u8],
     decoder: &zstd::dict::DecoderDictionary<'static>,
     uncompressed_len: usize,
@@ -20,26 +20,11 @@ fn decompress_with_decoder(
     decompressor.decompress(data, uncompressed_len)
 }
 
-fn decompress_raw(
+pub(crate) fn decompress_raw(
     payload: &[u8],
     uncompressed_len: usize,
 ) -> std::result::Result<Vec<u8>, CodecError> {
     zstd::bulk::decompress(payload, uncompressed_len).map_err(CodecError::DecompressionFailed)
-}
-
-pub fn decompress(blob: &[u8], schema: Option<&str>) -> std::result::Result<Vec<u8>, CodecError> {
-    let (header, payload) = Header::parse(blob)?;
-    let dict_id = DictId::from(header.dict_id.get());
-    let len = header.uncompressed_len.get() as usize;
-
-    if dict_id.get() != 0 {
-        let schema = schema.ok_or(CodecError::SchemaRequired)?;
-        if let Some(decoder) = get_decoder_cached(schema, dict_id) {
-            return decompress_with_decoder(payload, &decoder, len)
-                .map_err(CodecError::DecompressionFailed);
-        }
-    }
-    decompress_raw(payload, len)
 }
 
 pub fn sqlite_decompress(
@@ -64,7 +49,7 @@ pub fn sqlite_decompress(
     let decompressed = if dict_id.get() != 0 {
         let schema = schema.ok_or(CodecError::SchemaRequired)?;
         let mut conn = SqliteConn::from_context(context);
-        match get_decoder(schema, dict_id, &mut conn) {
+        match get_decoder(&mut conn, schema, dict_id) {
             Ok(decoder) => decompress_with_decoder(payload, &decoder, len)
                 .map_err(CodecError::DecompressionFailed)?,
             Err(DictError::NotReady) => decompress_raw(payload, len)?,

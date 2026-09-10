@@ -1,13 +1,12 @@
 use std::fmt::Display;
 
 use crate::{
-    dict::DICT_TABLE_NAME,
     functions::Level,
     utils::{quote_identifier, quote_qualified},
     SetupError,
 };
 
-const VIEW_SUFFIX: &str = "__zstd_decoded";
+const VIEW_SUFFIX: &str = "__compress_decoded";
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct SchemaName(String);
@@ -27,10 +26,6 @@ impl Display for SchemaName {
 impl SchemaName {
     pub fn new(name: &str) -> Self {
         Self(name.to_string())
-    }
-
-    pub fn as_zstd_schema_name(&self) -> String {
-        quote_qualified(self.as_str(), DICT_TABLE_NAME)
     }
 }
 

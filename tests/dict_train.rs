@@ -1,8 +1,7 @@
 use rusqlite::{params, Connection};
 use sqlite_compress::{
-    compress, decompress, setup, train_all, train_by_column, ColumnKey, Header, SchemaName,
-    SetupColumn, SetupConfig, SetupTable, TableName, CURRENT_DICT_IDS, DEFAULT_LEVEL,
-    DEFAULT_RETRAIN_GROWTH,
+    setup, train_all, train_by_column, SchemaName, SetupColumn, SetupConfig, SetupTable, TableName,
+    DEFAULT_LEVEL, DEFAULT_RETRAIN_GROWTH,
 };
 
 mod common;
@@ -408,7 +407,7 @@ fn train_retrains_when_growth_reaches_threshold() {
 }
 
 #[test]
-fn train_all_fills_current_dict_ids_and_compress_roundtrips() {
+fn train_all_marks_dict_as_current() {
     let sample_count = 64;
     let conn = Connection::open_in_memory().unwrap();
     conn.execute_batch(
@@ -442,23 +441,19 @@ fn train_all_fills_current_dict_ids_and_compress_roundtrips() {
         compression_level: DEFAULT_LEVEL,
     };
 
-    let key = ColumnKey::new("raw", "requests_raw", "data");
-    CURRENT_DICT_IDS.lock().remove(&key);
-
     let mut wrapper = common::RusqliteConn::new(&conn);
     setup(&mut wrapper, &config).unwrap();
 
     let dict_ids = train_all(&mut wrapper, &config, 1024).unwrap();
     assert_eq!(dict_ids.len(), 1);
 
-    let current = CURRENT_DICT_IDS.lock().get(&key).copied();
-    assert_eq!(current, Some(dict_ids[0]));
-
-    // no manual CURRENT_DICT_IDS insert — compress must use what train_all registered
-    let original = b"GET /api/users/42 HTTP/1.1\r\nHost: example.com\r\n\r\n";
-    let compressed = compress(original, &key, DEFAULT_LEVEL).unwrap();
-
-    let (header, _payload) = Header::parse(&compressed).unwrap();
-    assert_eq!(header.dict_id.get(), dict_ids[0].get());
-    assert_eq!(decompress(&compressed, Some("raw")).unwrap(), original);
+    let current: i64 = conn
+        .query_row(
+            "SELECT id FROM raw.__compress_dicts \
+             WHERE table_name = 'requests_raw' AND column_name = 'data' AND is_current = 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(current as u32, dict_ids[0].get());
 }

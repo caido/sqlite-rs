@@ -2,7 +2,8 @@ use std::collections::HashSet;
 
 use super::{SetupConfig, SetupConnection, SetupError};
 use crate::{
-    dict::{warm_cache, ColumnKey, DICT_TABLE_NAME},
+    cache::{warm_cache, CacheKeySource},
+    dict::{ColumnKey, DICT_TABLE_NAME},
     setup::SqlIdent,
 };
 
@@ -25,7 +26,8 @@ where
             trained_at INTEGER NOT NULL,
             table_name TEXT NOT NULL,
             column_name TEXT NOT NULL,
-            row_count INTEGER NOT NULL
+            row_count INTEGER NOT NULL,
+            is_current INTEGER NOT NULL DEFAULT 0
         );
     "
         ))
@@ -39,9 +41,9 @@ where
 /// The warm cache is mandatory to ensure the dictionary is ready to be used.
 /// By [get_decoder_cached](crate::dict::get_decoder_cached), [get_encoder_cached](crate::dict::get_encoder_cached),
 /// the dictionary is cached in memory.
-pub fn init_dict<C>(conn: &mut C, config: &SetupConfig) -> Result<(), SetupError>
+pub(super) fn init_dict<C>(conn: &mut C, config: &SetupConfig) -> Result<(), SetupError>
 where
-    C: SetupConnection,
+    C: SetupConnection + CacheKeySource,
 {
     ensure_table_exists(conn, config)?;
 

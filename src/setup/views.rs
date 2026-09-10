@@ -41,7 +41,7 @@ fn ensure_column_exist<C>(
     table: &TableName,
     schema: &SchemaName,
     column: &ColumnName,
-) -> Result<bool, SetupError>
+) -> Result<(), SetupError>
 where
     C: SetupConnection,
 {
@@ -58,7 +58,7 @@ where
         });
     }
 
-    Ok(true)
+    Ok(())
 }
 
 fn table_column_names<C>(
@@ -133,7 +133,7 @@ where
 /// 2. Ensure the columns exist in the database.
 /// 3. Ensure the views exist in the database.
 ///    A view is created for each column that targets the table in [`SetupConfig`].
-pub fn init_view<C>(conn: &mut C, config: &SetupConfig) -> Result<(), SetupError>
+pub(super) fn init_view<C>(conn: &mut C, config: &SetupConfig) -> Result<(), SetupError>
 where
     C: SetupConnection,
 {

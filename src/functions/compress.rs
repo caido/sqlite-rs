@@ -2,10 +2,9 @@ use sqlite_loadable::{api, prelude::*, Result};
 use zstd::bulk::Compressor;
 
 use crate::{
+    cache::{find_current_id, get_encoder},
     conn::SqliteConn,
-    dict::{
-        errors::DictError, get_encoder, get_encoder_cached, ColumnKey, DictId, CURRENT_DICT_IDS,
-    },
+    dict::{errors::DictError, ColumnKey, DictId},
     functions::{errors::CodecError, header::wrap, types::Level, DEFAULT_LEVEL},
 };
 
@@ -28,24 +27,6 @@ fn compress_raw(data: &[u8], level: Level) -> std::result::Result<Vec<u8>, Codec
     wrap(DictId::from(0), data.len(), compressed)
 }
 
-pub fn compress(
-    data: &[u8],
-    column: &ColumnKey,
-    level: Level,
-) -> std::result::Result<Vec<u8>, CodecError> {
-    let id = CURRENT_DICT_IDS.lock().get(column).copied();
-
-    if let Some(id) = id {
-        if id.get() != 0 {
-            if let Some(encoder) = get_encoder_cached(column.schema(), id) {
-                return compress_with_encoder(id, data, &encoder);
-            }
-        }
-    }
-
-    compress_raw(data, level)
-}
-
 pub fn sqlite_compress(context: *mut sqlite3_context, values: &[*mut sqlite3_value]) -> Result<()> {
     let data = api::value_blob(&values[0]);
     let schema = api::value_text(&values[1])?;
@@ -53,12 +34,11 @@ pub fn sqlite_compress(context: *mut sqlite3_context, values: &[*mut sqlite3_val
     let column = api::value_text(&values[3])?;
     let key = ColumnKey::new(schema, table, column);
 
-    let id = CURRENT_DICT_IDS.lock().get(&key).copied();
-
     let mut conn = SqliteConn::from_context(context);
+    let id = find_current_id(&conn, &key);
 
     let compressed = match id.filter(|id| id.get() != 0) {
-        Some(id) => match get_encoder(key.schema(), id, &mut conn, DEFAULT_LEVEL) {
+        Some(id) => match get_encoder(&mut conn, key.schema(), id, DEFAULT_LEVEL) {
             Ok(encoder) => compress_with_encoder(id, data, &encoder)?,
             Err(DictError::NotReady) => compress_raw(data, DEFAULT_LEVEL)?,
             Err(e) => return Err(CodecError::DictError(e).into()),

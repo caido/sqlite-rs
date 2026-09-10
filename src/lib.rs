@@ -1,16 +1,16 @@
+mod cache;
 mod conn;
 mod dict;
 mod functions;
+mod on_close;
 mod setup;
 mod utils;
 
 pub const DEFAULT_RETRAIN_GROWTH: usize = 5000;
 
-pub use dict::{
-    errors::DictError, get_decoder, get_encoder, train_all, train_by_column, ColumnKey, DictId,
-    CURRENT_DICT_IDS,
-};
-pub use functions::{compress, decompress, CodecError, Header, DEFAULT_LEVEL};
+pub use cache::{CacheKeySource, DbKey};
+pub use dict::{errors::DictError, train_all, train_by_column, ColumnKey, DictId};
+pub use functions::{CodecError, Header, DEFAULT_LEVEL};
 pub use setup::{
     setup, ColumnName, DictStore, SchemaName, SetupColumn, SetupConfig, SetupConnection,
     SetupError, SetupTable, TableName,
@@ -42,6 +42,12 @@ pub fn sqlite3_compress_init(db: *mut sqlite3) -> Result<()> {
         functions::sqlite_decompress,
         FunctionFlags::DETERMINISTIC,
     )?;
+
+    let key = DbKey::for_handle(db.cast());
+
+    on_close::on_close(db, move |closed_db| {
+        cache::remove_connection_cache(closed_db as usize, key);
+    })?;
 
     Ok(())
 }
