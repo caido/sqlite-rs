@@ -23,9 +23,7 @@ pub(crate) fn read_current_id<C: SetupConnection>(
         return Ok(None);
     }
 
-    let dict_id = u32::try_from(latest)
-        .map(DictId::new)
-        .map_err(|_| DictError::NotFound(DictId::new(0)))?;
+    let dict_id = DictId::try_from(latest)?;
 
     Ok(Some(dict_id))
 }

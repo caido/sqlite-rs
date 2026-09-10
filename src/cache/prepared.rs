@@ -29,13 +29,12 @@ where
     let encoder = Arc::new(EncoderDictionary::copy(&raw, level.get()));
     let mut registry = REGISTRY.lock();
     let cache = registry.cache_for(db_key);
-    let mut encoders = cache.encoders.lock();
 
-    if let Some(dict) = encoders.get(&key) {
+    if let Some(dict) = cache.encoders.get(&key) {
         return Ok(dict);
     }
 
-    encoders.insert(key, encoder.clone());
+    cache.encoders.insert(key, encoder.clone());
     Ok(encoder)
 }
 
@@ -59,12 +58,11 @@ where
     let mut registry = REGISTRY.lock();
     let cache = registry.cache_for(db_key);
 
-    let mut decoders = cache.decoders.lock();
-    if let Some(dict) = decoders.get(&key) {
+    if let Some(dict) = cache.decoders.get(&key) {
         return Ok(dict);
     }
 
-    decoders.insert(key, decoder.clone());
+    cache.decoders.insert(key, decoder.clone());
     Ok(decoder)
 }
 
@@ -98,13 +96,12 @@ pub(crate) fn insert_into_caches<C: CacheKeySource>(
         cache.set_current_id(column.clone(), dict_id);
 
         let key = DictKey::new(column.schema(), dict_id);
-        cache.encoders.lock().insert(
+        cache.encoders.insert(
             key.clone(),
             Arc::new(EncoderDictionary::copy(dictionary, level.get())),
         );
         cache
             .decoders
-            .lock()
             .insert(key, Arc::new(DecoderDictionary::copy(dictionary)));
     });
 }

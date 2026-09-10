@@ -29,7 +29,7 @@ impl CacheRegistry {
         }
     }
 
-    pub(crate) fn cache_for(&mut self, key: DbKey) -> &ConnectionCache {
+    pub(crate) fn cache_for(&mut self, key: DbKey) -> &mut ConnectionCache {
         self.caches.entry(key).or_insert_with(ConnectionCache::new)
     }
 
@@ -42,7 +42,7 @@ impl CacheRegistry {
         db_key: DbKey,
         key: &DictKey,
     ) -> Option<Arc<EncoderDictionary<'static>>> {
-        self.caches.get(&db_key)?.encoders.lock().peek(key)
+        self.caches.get(&db_key)?.encoders.peek(key)
     }
 
     pub(crate) fn peek_decoder(
@@ -50,7 +50,7 @@ impl CacheRegistry {
         db_key: DbKey,
         key: &DictKey,
     ) -> Option<Arc<DecoderDictionary<'static>>> {
-        self.caches.get(&db_key)?.decoders.lock().peek(key)
+        self.caches.get(&db_key)?.decoders.peek(key)
     }
 }
 
@@ -61,7 +61,7 @@ pub(crate) fn remove_cache(key: DbKey) {
 pub(crate) fn with_conn<C, R, F>(conn: &C, f: F) -> R
 where
     C: CacheKeySource,
-    F: FnOnce(&ConnectionCache) -> R,
+    F: FnOnce(&mut ConnectionCache) -> R,
 {
     let key = conn.db_key();
     let mut registry = REGISTRY.lock();
