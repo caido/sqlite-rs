@@ -1,5 +1,4 @@
 mod cache;
-mod client_data;
 mod conn;
 mod dict;
 mod functions;
@@ -8,77 +7,64 @@ mod utils;
 
 pub const DEFAULT_RETRAIN_GROWTH: usize = 5000;
 
-use std::ffi::c_void;
+use std::ffi::{c_char, c_int};
 
 pub use dict::{errors::DictError, train_all, train_by_column, ColumnKey, DictId};
 pub use functions::{CodecError, Header, DEFAULT_LEVEL};
-use parking_lot::Mutex;
 pub use setup::{
     setup, ColumnName, DictStore, SchemaName, SetupColumn, SetupConfig, SetupConnection,
     SetupError, SetupTable, TableName,
 };
-use sqlite_loadable::{define_scalar_function, prelude::*, Result, SQLITE_OK};
+use sqlite_ffi::{create_function_v2, init_extension, SqliteError};
 
-use crate::{cache::ConnectionCache, client_data::State};
+use crate::conn::Connection;
 
-unsafe extern "C" fn drop_state(ptr: *mut c_void) {
-    if !ptr.is_null() {
-        unsafe {
-            drop(Box::from_raw(ptr.cast::<State>()));
-        }
-    }
-}
+use libsqlite3_sys::{sqlite3, sqlite3_api_routines, SQLITE_OK};
 
 #[no_mangle]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn sqlite3_compress_init(
     db: *mut sqlite3,
     pz_err_msg: *mut *mut c_char,
-    p_api: *const sqlite3_api_routines,
+    p_api: *mut sqlite3_api_routines,
 ) -> c_int {
-    unsafe {
-        client_data::initialize(p_api);
+    if let Err(SqliteError::Sqlite { code, .. }) = init_extension(p_api) {
+        return code;
     }
 
-    let raw_state = Box::into_raw(Box::new(State {
-        cache: Mutex::new(ConnectionCache::new()),
-    }))
-    .cast::<c_void>();
-
-    let rc = unsafe { client_data::set(p_api, db, client_data::NAME, raw_state, Some(drop_state)) };
-
-    if rc != SQLITE_OK {
-        drop(Box::from_raw(raw_state.cast::<State>()));
-        return rc;
+    if let Err(SqliteError::Sqlite { code, .. }) = Connection::attach(db) {
+        return code;
     }
 
-    register_entrypoint(db, pz_err_msg, p_api, sqlite3_compress_init_impl)
-}
-
-pub fn sqlite3_compress_init_impl(db: *mut sqlite3) -> Result<()> {
-    define_scalar_function(
+    if let Err(SqliteError::Sqlite { code, .. }) = create_function_v2(
         db,
         "compress",
         4,
+        sqlite_ffi::TextRep::UTF8,
         functions::sqlite_compress,
-        FunctionFlags::DETERMINISTIC,
-    )?;
+    ) {
+        return code;
+    }
 
-    define_scalar_function(
+    if let Err(SqliteError::Sqlite { code, .. }) = create_function_v2(
         db,
         "decompress",
         1,
+        sqlite_ffi::TextRep::UTF8,
         functions::sqlite_decompress,
-        FunctionFlags::DETERMINISTIC,
-    )?;
+    ) {
+        return code;
+    }
 
-    define_scalar_function(
+    if let Err(SqliteError::Sqlite { code, .. }) = create_function_v2(
         db,
         "decompress",
         2,
+        sqlite_ffi::TextRep::UTF8,
         functions::sqlite_decompress,
-        FunctionFlags::DETERMINISTIC,
-    )?;
+    ) {
+        return code;
+    }
 
-    Ok(())
+    SQLITE_OK
 }

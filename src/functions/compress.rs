@@ -1,10 +1,10 @@
-use sqlite_loadable::{api, prelude::*, Result};
 use zstd::bulk::Compressor;
+
+use libsqlite3_sys::{sqlite3_context, sqlite3_value};
 
 use crate::{
     cache::get_encoder_in_cache,
-    client_data,
-    conn::SqliteConn,
+    conn::Connection,
     dict::{errors::DictError, ColumnKey, DictId},
     functions::{errors::CodecError, header::wrap, types::Level, DEFAULT_LEVEL},
 };
@@ -28,36 +28,32 @@ fn compress_raw(data: &[u8], level: Level) -> std::result::Result<Vec<u8>, Codec
     wrap(DictId::from(0), data.len(), compressed)
 }
 
-pub fn sqlite_compress(context: *mut sqlite3_context, values: &[*mut sqlite3_value]) -> Result<()> {
-    let data = api::value_blob(&values[0]);
-    let schema = api::value_text(&values[1])?;
-    let table = api::value_text(&values[2])?;
-    let column = api::value_text(&values[3])?;
+pub fn sqlite_compress(context: *mut sqlite3_context, values: &[*mut sqlite3_value]) {
+    let data = sqlite_ffi::value_blob(&values[0]);
+    let schema = sqlite_ffi::value_text(&values[1]).unwrap();
+    let table = sqlite_ffi::value_text(&values[2]).unwrap();
+    let column = sqlite_ffi::value_text(&values[3]).unwrap();
+
     let key = ColumnKey::new(schema, table, column);
 
-    let db = api::context_db_handle(context);
+    let mut conn = Connection::from_context(context).unwrap();
 
-    let mut conn = SqliteConn::from_context(context);
+    let id = conn
+        .cache
+        .lock()
+        .current_id(&key)
+        .ok_or(CodecError::MissingConnectionState)
+        .unwrap();
 
-    let id = client_data::with_cache(db, |cache| cache.lock().current_id(&key))
-        .ok_or(CodecError::MissingConnectionState)?;
-
-    let compressed = match id.filter(|id| id.get() != 0) {
-        Some(id) => {
-            let encoder = client_data::with_cache(db, |cache| {
-                get_encoder_in_cache(cache, &mut conn, key.schema(), id, DEFAULT_LEVEL)
-            })
-            .ok_or(CodecError::MissingConnectionState)?;
-
-            match encoder {
-                Ok(encoder) => compress_with_encoder(id, data, &encoder)?,
-                Err(DictError::NotReady) => compress_raw(data, DEFAULT_LEVEL)?,
-                Err(e) => return Err(CodecError::DictError(e).into()),
-            }
+    let compressed = if id.get() != 0 {
+        match get_encoder_in_cache(&mut conn, schema, id, DEFAULT_LEVEL) {
+            Ok(encoder) => compress_with_encoder(id, data, &encoder).unwrap(),
+            Err(DictError::NotReady) => compress_raw(data, DEFAULT_LEVEL).unwrap(),
+            Err(e) => return Err(CodecError::DictError(e).into()).unwrap(),
         }
-        None => compress_raw(data, DEFAULT_LEVEL)?,
+    } else {
+        compress_raw(data, DEFAULT_LEVEL).unwrap()
     };
 
-    api::result_blob(context, &compressed);
-    Ok(())
+    sqlite_ffi::result_blob(context, &compressed);
 }

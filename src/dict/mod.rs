@@ -1,4 +1,4 @@
-use crate::{dict::errors::DictError, setup::DictStore, utils::quote_qualified};
+use crate::{conn::Connection, dict::errors::DictError, utils::quote_qualified};
 
 mod current;
 pub mod errors;
@@ -12,9 +12,9 @@ pub use types::{ColumnKey, DictId};
 
 pub static DICT_TABLE_NAME: &str = "__compress_dicts";
 
-pub(crate) fn load_raw_dict<C: DictStore>(
+pub(crate) fn load_raw_dict(
     dict_key: &DictKey,
-    conn: &mut C,
+    conn: &mut Connection,
 ) -> Result<Vec<u8>, DictError> {
     let table = quote_qualified(&dict_key.schema, DICT_TABLE_NAME);
     let rows = conn

@@ -1,4 +1,4 @@
-use sqlite_loadable::{api, prelude::*, Result};
+use libsqlite3_sys::{sqlite3_context, sqlite3_value};
 use zstd::bulk::Decompressor;
 
 use crate::{

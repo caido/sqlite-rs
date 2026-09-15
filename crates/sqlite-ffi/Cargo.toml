@@ -1,0 +1,13 @@
+[package]
+name = "sqlite-ffi"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+libsqlite3-sys = { workspace = true }
+thiserror = { workspace = true }
+
+[features]
+default = ["bundled"]
+bundled = ["libsqlite3-sys/bundled"]
+loadable_extension = ["libsqlite3-sys/loadable_extension"]

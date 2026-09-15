@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use super::{SetupConfig, SetupConnection, SetupError};
 use crate::{
     cache::warm_cache,
-    client_data,
+    conn::Connection,
     dict::{ColumnKey, DICT_TABLE_NAME},
     setup::SqlIdent,
 };
@@ -56,11 +56,10 @@ where
                 column.name.as_str(),
             );
 
-            client_data::with_cache(conn.sqlite_handle(), |cache| {
-                warm_cache(cache, conn, &key, config.compression_level)
-            })
-            .ok_or(SetupError::MissingConnectionState)?
-            .map_err(|e| SetupError::DictTrain(e.to_string()))?;
+            let client = Connection::from_db(conn.sqlite_handle()).unwrap();
+
+            warm_cache(&client.cache, conn, &key, config.compression_level)
+                .map_err(|e| SetupError::DictTrain(e.to_string()))?;
         }
     }
 

@@ -4,19 +4,23 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-sqlite-loadable = {git = "https://github.com/caido/dependency-sqlite-loadable-rs",branch = "caido",default-features = false,features = ["dynamic"]}
+sqlite-ffi = { path = "./crates/sqlite-ffi", default-features = false, features = ["loadable_extension"] }
 zstd = { version = "0.13.3", features = ["zdict_builder"] }
-thiserror = "2.0.19"
 parking_lot = "0.12.4"
 zerocopy = { version = "0.8.56", features = ["derive"] }
-sqlite-clientdata-sys = { path = "crates/sqlite-clientdata-sys" }
-
-[dev-dependencies]
-rusqlite = { version = "0.32", features = ["bundled"] }
+thiserror = {workspace=true}
+libsqlite3-sys = {workspace=true}
 
 [lib]
 crate-type=["cdylib","rlib"]
 
 [workspace]
-members = [".", "crates/sqlite-clientdata-sys"]
+members = [".", "crates/sqlite-ffi", "crates/sqlite-ffi-demo"]
 resolver = "2"
+
+[workspace.dependencies]
+thiserror = "2.0.20"
+libsqlite3-sys = { git = "https://github.com/rusqlite/rusqlite", package = "libsqlite3-sys" }
+
+[patch.crates-io]
+libsqlite3-sys = { git = "https://github.com/rusqlite/rusqlite", package = "libsqlite3-sys" }

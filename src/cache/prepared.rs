@@ -5,30 +5,27 @@ use zstd::dict::{DecoderDictionary, EncoderDictionary};
 
 use crate::{
     cache::ConnectionCache,
+    conn::Connection,
     dict::{load_raw_dict, read_current_id, DictKey},
     functions::Level,
     ColumnKey, DictError, DictId, DictStore, SetupConnection,
 };
 
-pub(crate) fn get_encoder_in_cache<C>(
-    cache: &Mutex<ConnectionCache>,
-    conn: &mut C,
+pub(crate) fn get_encoder_in_cache(
+    conn: &mut Connection,
     schema: &str,
     dict_id: DictId,
     level: Level,
-) -> Result<Arc<EncoderDictionary<'static>>, DictError>
-where
-    C: DictStore,
-{
+) -> Result<Arc<EncoderDictionary<'static>>, DictError> {
     let key = DictKey::new(schema, dict_id);
 
-    if let Some(dict) = cache.lock().encoders.peek(&key) {
+    if let Some(dict) = conn.cache.lock().encoders.peek(&key) {
         return Ok(dict);
     }
 
     let raw = load_raw_dict(&key, conn)?;
 
-    let mut cache = cache.lock();
+    let mut cache = conn.cache.lock();
 
     if let Some(dict) = cache.encoders.get(&key) {
         return Ok(dict);
