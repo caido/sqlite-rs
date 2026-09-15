@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="Run a criterion bench by name"
+#USAGE arg "<bench>" help="Bench target name (e.g. insert_basic)" {
+#USAGE   choices "insert_basic" "select_basic" "compress_basic" "decompress_basic"
+#USAGE }
+cargo bench --bench "${usage_bench?}"

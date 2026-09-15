@@ -2,6 +2,7 @@
 name = "sqlite-compress"
 version = "0.1.0"
 edition = "2021"
+autobenches = false
 
 [dependencies]
 sqlite-loadable = {git = "https://github.com/caido/dependency-sqlite-loadable-rs",branch = "caido",default-features = false,features = ["dynamic"]}
@@ -11,7 +12,29 @@ parking_lot = "0.12.4"
 zerocopy = { version = "0.8.56", features = ["derive"] }
 
 [dev-dependencies]
-rusqlite = { version = "0.32", features = ["bundled"] }
+clap = { version = "4", features = ["derive"] }
+criterion = "0.5"
+rusqlite = { version = "0.32", features = ["bundled", "load_extension"] }
+rand = { version = "0.8"}
+
+[features]
+default = []
 
 [lib]
 crate-type=["cdylib","rlib"]
+
+[[bench]]
+name = "insert_basic"
+harness = false
+
+[[bench]]
+name = "select_basic"
+harness = false
+
+[[bench]]
+name = "compress_basic"
+harness = false
+
+[[bench]]
+name = "decompress_basic"
+harness = false

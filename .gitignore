@@ -1,3 +1,5 @@
 /target
 caido.db
 /samples
+/target/bench-dataset.db
+/target/bench-dataset.db-*

@@ -1,0 +1,9 @@
+{
+  "name": "scripts",
+  "version": "1.0.0",
+  "description": "run script to write comment on pr bench",
+  "main": "comment-bench-pr.js",
+  "type": "module",
+  "author": "caido",
+  "license": "ISC"
+}
