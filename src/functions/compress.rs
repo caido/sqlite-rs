@@ -35,7 +35,7 @@ pub fn sqlite_compress(context: *mut sqlite3_context, values: &[*mut sqlite3_val
     let column = sqlite_ffi::value_text(&values[3]).unwrap();
 
     let key = ColumnKey::new(schema, table, column);
-
+    //
     let mut conn = Connection::from_context(context).unwrap();
 
     let id = conn
