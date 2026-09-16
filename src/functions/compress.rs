@@ -41,8 +41,7 @@ pub fn sqlite_compress(context: Context, values: &[Value]) {
         .cache
         .lock()
         .current_id(&key)
-        .ok_or(CodecError::MissingConnectionState)
-        .expect("missing connection state");
+        .unwrap_or(DictId::from(0));
 
     let compressed = if id.get() != 0 {
         match get_encoder_in_cache(conn, schema, id, DEFAULT_LEVEL) {

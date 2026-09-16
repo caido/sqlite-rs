@@ -10,12 +10,13 @@ zerocopy = { version = "0.8.56", features = ["derive"] }
 thiserror = { workspace=true }
 sqlite-ffi = { path = "./crates/sqlite-ffi", default-features = false }
 libsqlite3-sys = { workspace = true, default-features = false }
+sqlite-ffi-macros = { path = "./crates/sqlite-ffi-macros" }
 
 [lib]
 crate-type=["cdylib","rlib"]
 
 [workspace]
-members = [".", "crates/sqlite-ffi"]
+members = [".", "crates/sqlite-ffi", "crates/sqlite-ffi-macros"]
 resolver = "2"
 
 [features]

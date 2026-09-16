@@ -178,6 +178,7 @@ dependencies = [
  "libsqlite3-sys",
  "parking_lot",
  "sqlite-ffi",
+ "sqlite-ffi-macros",
  "thiserror",
  "zerocopy",
  "zstd",
@@ -189,6 +190,16 @@ version = "0.1.0"
 dependencies = [
  "libsqlite3-sys",
  "thiserror",
+]
+
+[[package]]
+name = "sqlite-ffi-macros"
+version = "0.1.0"
+dependencies = [
+ "libsqlite3-sys",
+ "quote",
+ "sqlite-ffi",
+ "syn 2.0.119",
 ]
 
 [[package]]
