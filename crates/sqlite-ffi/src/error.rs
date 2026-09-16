@@ -2,8 +2,12 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum SqliteError {
-    #[error("SQLite error (code {code}): {message}")]
-    Sqlite { code: i32, message: String },
+    #[error("SQLite {operation} failed (code {code}): {message}")]
+    Sqlite {
+        operation: &'static str,
+        code: i32,
+        message: String,
+    },
 
     #[error("Invalid string: {0}")]
     InvalidString(#[from] std::ffi::NulError),
@@ -11,6 +15,6 @@ pub enum SqliteError {
     #[error("Invalid UTF-8: {0}")]
     InvalidUtf8(#[from] std::str::Utf8Error),
 
-    #[error("Invalid client name: {0}")]
-    InvalidClientName(String),
+    #[error("Pointer not valid: {0}")]
+    PointerNotValid(String),
 }

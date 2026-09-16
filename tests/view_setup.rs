@@ -23,13 +23,15 @@ fn setup_skips_existing_view() {
 
     let view_name = "__compress_decoded_requests_raw";
 
-    conn.batch_execute(&format!(
-        r#"
+    conn.database()
+        .batch_execute(&format!(
+            r#"
         ATTACH DATABASE ':memory:' AS raw;
         CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
         CREATE VIEW raw."{view_name}" AS SELECT id FROM raw.requests_raw;
         "#
-    ));
+        ))
+        .unwrap();
 
     let config = SetupConfig {
         tables: vec![SetupTable {
@@ -48,6 +50,7 @@ fn setup_skips_existing_view() {
     setup(&db, &config).unwrap();
 
     let count = conn
+        .database()
         .query_i64("SELECT COUNT(*) FROM raw.sqlite_master WHERE type = 'view'")
         .unwrap();
     assert_eq!(count, 1);
@@ -58,12 +61,14 @@ fn setup_creates_view() {
     let db = common::TestDb::open();
     let conn = db.conn();
 
-    conn.batch_execute(
-        r#"
+    conn.database()
+        .batch_execute(
+            r#"
         ATTACH DATABASE ':memory:' AS raw;
         CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
         "#,
-    );
+        )
+        .unwrap();
 
     let config = SetupConfig {
         tables: vec![SetupTable {
@@ -83,6 +88,7 @@ fn setup_creates_view() {
 
     let view_name = "__compress_decoded_requests_raw";
     let count = conn
+        .database()
         .query_i64(&format!(
             "SELECT COUNT(*) FROM raw.sqlite_master WHERE type = 'view' AND name = '{}'",
             view_name
@@ -97,8 +103,9 @@ fn setup_creates_one_view_per_table() {
     let db = common::TestDb::open();
     let conn = db.conn();
 
-    conn.batch_execute(
-        r#"
+    conn.database()
+        .batch_execute(
+            r#"
         ATTACH DATABASE ':memory:' AS raw;
         CREATE TABLE raw.requests_raw (
             id INTEGER PRIMARY KEY,
@@ -106,7 +113,8 @@ fn setup_creates_one_view_per_table() {
             headers BLOB
         );
         "#,
-    );
+        )
+        .unwrap();
 
     let config = SetupConfig {
         tables: vec![SetupTable {
@@ -133,6 +141,7 @@ fn setup_creates_one_view_per_table() {
     setup(&db, &config).unwrap();
 
     let names = conn
+        .database()
         .query_strings(
             "SELECT name FROM raw.sqlite_master \
          WHERE type = 'view' ORDER BY name",
@@ -147,12 +156,14 @@ fn setup_rejects_missing_column() {
     let db = common::TestDb::open();
     let conn = db.conn();
 
-    conn.batch_execute(
-        r#"
+    conn.database()
+        .batch_execute(
+            r#"
     ATTACH DATABASE ':memory:' AS raw;
     CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
     "#,
-    );
+        )
+        .unwrap();
 
     let config = SetupConfig {
         tables: vec![SetupTable {
@@ -181,12 +192,14 @@ fn setup_rejects_missing_table() {
     let db = common::TestDb::open();
     let conn = db.conn();
 
-    conn.batch_execute(
-        r#"
+    conn.database()
+        .batch_execute(
+            r#"
     ATTACH DATABASE ':memory:' AS raw;
     CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
     "#,
-    );
+        )
+        .unwrap();
 
     let config = SetupConfig {
         tables: vec![SetupTable {
@@ -210,12 +223,14 @@ fn setup_rejects_zero_retrain_growth() {
     let db = common::TestDb::open();
     let conn = db.conn();
 
-    conn.batch_execute(
-        r#"
+    conn.database()
+        .batch_execute(
+            r#"
         ATTACH DATABASE ':memory:' AS raw;
         CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
         "#,
-    );
+        )
+        .unwrap();
 
     let config = invalid_config(SetupColumn::new(
         "data",
@@ -236,12 +251,14 @@ fn setup_rejects_zero_min_samples() {
     let db = common::TestDb::open();
     let conn = db.conn();
 
-    conn.batch_execute(
-        r#"
+    conn.database()
+        .batch_execute(
+            r#"
         ATTACH DATABASE ':memory:' AS raw;
         CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
         "#,
-    );
+        )
+        .unwrap();
 
     let config = invalid_config(SetupColumn::new(
         "data",
@@ -262,12 +279,14 @@ fn setup_rejects_zero_max_samples() {
     let db = common::TestDb::open();
     let conn = db.conn();
 
-    conn.batch_execute(
-        r#"
+    conn.database()
+        .batch_execute(
+            r#"
         ATTACH DATABASE ':memory:' AS raw;
         CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
         "#,
-    );
+        )
+        .unwrap();
 
     let config = invalid_config(SetupColumn::new(
         "data",
@@ -288,12 +307,14 @@ fn setup_rejects_max_samples_below_min() {
     let db = common::TestDb::open();
     let conn = db.conn();
 
-    conn.batch_execute(
-        r#"
+    conn.database()
+        .batch_execute(
+            r#"
         ATTACH DATABASE ':memory:' AS raw;
         CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
         "#,
-    );
+        )
+        .unwrap();
 
     let config = invalid_config(SetupColumn::new("data", DEFAULT_RETRAIN_GROWTH, 2000, 1000));
 

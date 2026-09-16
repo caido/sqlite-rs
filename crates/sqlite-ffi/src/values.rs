@@ -1,6 +1,8 @@
 use std::{ptr::NonNull, slice};
 
-use libsqlite3_sys::{sqlite3_value, sqlite3_value_blob, sqlite3_value_bytes, sqlite3_value_int64, sqlite3_value_text};
+use libsqlite3_sys::{
+    sqlite3_value, sqlite3_value_blob, sqlite3_value_bytes, sqlite3_value_int64, sqlite3_value_text,
+};
 
 use crate::SqliteError;
 
@@ -11,7 +13,7 @@ pub struct Value {
 impl Value {
     pub fn from_raw(value: *mut sqlite3_value) -> Value {
         Self {
-            value: NonNull::new(value).unwrap(),
+            value: NonNull::new(value).expect("value pointer is not valid"),
         }
     }
 

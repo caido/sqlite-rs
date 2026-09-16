@@ -4,12 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-sqlite-ffi = { path = "./crates/sqlite-ffi", default-features = false, features = ["loadable_extension"] }
 zstd = { version = "0.13.3", features = ["zdict_builder"] }
 parking_lot = "0.12.4"
 zerocopy = { version = "0.8.56", features = ["derive"] }
-thiserror = {workspace=true}
-libsqlite3-sys = {workspace=true}
+thiserror = { workspace=true }
+sqlite-ffi = { path = "./crates/sqlite-ffi", default-features = false }
+libsqlite3-sys = { workspace = true, default-features = false }
 
 [lib]
 crate-type=["cdylib","rlib"]
@@ -17,6 +17,17 @@ crate-type=["cdylib","rlib"]
 [workspace]
 members = [".", "crates/sqlite-ffi"]
 resolver = "2"
+
+[features]
+default = ["bundled"]
+bundled = [
+    "sqlite-ffi/bundled",
+    "libsqlite3-sys/bundled",
+]
+loadable_extension = [
+    "sqlite-ffi/loadable_extension",
+    "libsqlite3-sys/loadable_extension",
+]
 
 [workspace.dependencies]
 thiserror = "2.0.20"

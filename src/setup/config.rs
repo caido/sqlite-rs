@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use libsqlite3_sys::sqlite3;
 
 use crate::{
@@ -5,7 +7,6 @@ use crate::{
     utils::{quote_identifier, quote_qualified},
     SetupError,
 };
-use std::fmt::Display;
 
 const VIEW_SUFFIX: &str = "__compress_decoded";
 

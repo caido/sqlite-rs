@@ -1,3 +1,5 @@
+use sqlite_ffi::Database;
+
 use crate::{
     conn::Connection,
     setup::{
@@ -11,12 +13,12 @@ use crate::{
 /// Doing the check if the table exists in the database.
 /// Based on the schema and the table name.
 fn ensure_table_exists(
-    conn: &Connection,
+    db: &Database,
     schema: &SchemaName,
     table_name: &TableName,
 ) -> Result<(), SetupError> {
-    let count = conn
-        .db.query_i64(&format!(
+    let count = db
+        .query_i64(&format!(
             "SELECT COUNT(*) FROM {schema}.sqlite_master WHERE type = 'table' AND name = {table_name}"
         ))
         .map_err(SetupError::from_conn)?;
@@ -35,13 +37,12 @@ fn ensure_table_exists(
 /// For each column in the table, check if the column exists in the database.
 /// Based on the table name and the schema.
 fn ensure_column_exist(
-    conn: &Connection,
+    db: &Database,
     table: &TableName,
     schema: &SchemaName,
     column: &ColumnName,
 ) -> Result<(), SetupError> {
-    let col_exists = conn
-        .db
+    let col_exists = db
         .query_i64(&format!(
             "SELECT COUNT(*) FROM pragma_table_info({table}, {schema}) WHERE name = {column}"
         ))
@@ -58,15 +59,14 @@ fn ensure_column_exist(
 }
 
 fn table_column_names(
-    conn: &Connection,
+    db: &Database,
     schema: &SchemaName,
     table: &TableName,
 ) -> Result<Vec<String>, SetupError> {
-    conn.db
-        .query_strings(&format!(
-            "SELECT name AS value FROM pragma_table_info({table}, {schema}) ORDER BY cid"
-        ))
-        .map_err(SetupError::from_conn)
+    db.query_strings(&format!(
+        "SELECT name AS value FROM pragma_table_info({table}, {schema}) ORDER BY cid"
+    ))
+    .map_err(SetupError::from_conn)
 }
 
 fn build_decoded_select_list(
@@ -89,11 +89,10 @@ fn build_decoded_select_list(
         .join(", ")
 }
 
-fn ensure_table_view_exists(conn: &Connection, table: &SetupTable) -> Result<(), SetupError> {
+fn ensure_table_view_exists(db: &Database, table: &SetupTable) -> Result<(), SetupError> {
     let view_name = table.name.decoded_view_name();
     let schema_qualified = table.as_qualified_schema_name();
-    let count = conn
-        .db
+    let count = db
         .query_i64(&format!(
             "SELECT COUNT(*) FROM {schema_qualified}.sqlite_master \
              WHERE type = 'view' AND name = {}",
@@ -105,16 +104,17 @@ fn ensure_table_view_exists(conn: &Connection, table: &SetupTable) -> Result<(),
         return Ok(());
     }
 
-    let table_columns = table_column_names(conn, &table.schema, &table.name)?;
+    let table_columns = table_column_names(db, &table.schema, &table.name)?;
     let compressed = table.compressed_column_names();
     let select_list = build_decoded_select_list(&table_columns, &compressed, table.schema.as_str());
     let qualified_view = table.as_qualified_decoded_view_name();
 
-    conn.db.batch_execute(&format!(
+    db.batch_execute(&format!(
         "CREATE VIEW IF NOT EXISTS {qualified_view} AS \
          SELECT {select_list} FROM {}",
         table.as_qualified_table_name()
-    ));
+    ))
+    .map_err(SetupError::from_conn)?;
 
     Ok(())
 }
@@ -126,14 +126,14 @@ fn ensure_table_view_exists(conn: &Connection, table: &SetupTable) -> Result<(),
 ///    A view is created for each column that targets the table in [`SetupConfig`].
 pub(super) fn init_view(conn: &Connection, config: &SetupConfig) -> Result<(), SetupError> {
     for table in config.tables.iter() {
-        ensure_table_exists(&conn, &table.schema, &table.name)?;
+        ensure_table_exists(conn.database(), &table.schema, &table.name)?;
 
         for column in &table.columns {
-            ensure_column_exist(&conn, &table.name, &table.schema, &column.name)?;
+            ensure_column_exist(conn.database(), &table.name, &table.schema, &column.name)?;
         }
 
         if !table.columns.is_empty() {
-            ensure_table_view_exists(&conn, table)?;
+            ensure_table_view_exists(conn.database(), table)?;
         }
     }
 

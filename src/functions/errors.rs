@@ -4,6 +4,9 @@ use crate::dict::errors::DictError;
 
 #[derive(Error, Debug)]
 pub enum CodecError {
+    #[error("dictionary error: {0}")]
+    DictError(#[from] DictError),
+
     #[error("compression requires one argument")]
     CompressionRequiresOneArgument,
     #[error("compression failed: {0}")]
@@ -18,8 +21,7 @@ pub enum CodecError {
     DictNotFound,
     #[error("dict not ready")]
     DictNotReady,
-    #[error("dict error: {0}")]
-    DictError(DictError),
+
     #[error("payload too large")]
     PayloadTooLarge,
     #[error("unknown codec: {0}")]

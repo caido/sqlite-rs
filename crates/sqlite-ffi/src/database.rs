@@ -12,16 +12,13 @@ pub struct Database {
 impl Database {
     pub fn from_raw(db: *mut sqlite3) -> Self {
         Database {
-            conn: NonNull::new(db).unwrap(),
+            conn: NonNull::new(db).expect("database pointer is not valid"),
         }
     }
 
     pub fn from_context(context: &Context) -> Result<Self, SqliteError> {
         let db = unsafe { get_context_db_handle_raw(context.ctx.as_ptr()) };
-        let conn = NonNull::new(db).ok_or_else(|| SqliteError::Sqlite {
-            code: -1,
-            message: "null db handle from context".into(),
-        })?;
+        let conn = NonNull::new(db).expect("null db handle from context");
 
         Ok(Self { conn })
     }

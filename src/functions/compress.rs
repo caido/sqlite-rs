@@ -29,29 +29,34 @@ fn compress_raw(data: &[u8], level: Level) -> std::result::Result<Vec<u8>, Codec
 
 pub fn sqlite_compress(context: Context, values: &[Value]) {
     let data = values[0].to_blob();
-    let schema = values[1].to_text().unwrap();
-    let table = values[2].to_text().unwrap();
-    let column = values[3].to_text().unwrap();
+    let schema = values[1].to_text().expect("schema is not a text");
+    let table = values[2].to_text().expect("table is not a text");
+    let column = values[3].to_text().expect("column is not a text");
 
     let key = ColumnKey::new(schema, table, column);
 
-    let conn = Connection::from_context(&context).unwrap();
+    let conn = Connection::from_context(&context).expect("connection is not valid");
 
     let id = conn
         .cache
         .lock()
         .current_id(&key)
         .ok_or(CodecError::MissingConnectionState)
-        .unwrap();
+        .expect("missing connection state");
 
     let compressed = if id.get() != 0 {
-        match get_encoder_in_cache(&conn, schema, id, DEFAULT_LEVEL) {
-            Ok(encoder) => compress_with_encoder(id, data, &encoder).unwrap(),
-            Err(DictError::NotReady) => compress_raw(data, DEFAULT_LEVEL).unwrap(),
-            Err(_) => return, //Err(CodecError::DictError(e).into()).unwrap(),
+        match get_encoder_in_cache(conn, schema, id, DEFAULT_LEVEL) {
+            Ok(encoder) => compress_with_encoder(id, data, &encoder).expect("compression failed"),
+            Err(DictError::NotReady) => {
+                compress_raw(data, DEFAULT_LEVEL).expect("compression failed")
+            }
+            Err(e) => {
+                context.result_error(&e.to_string());
+                return;
+            }
         }
     } else {
-        compress_raw(data, DEFAULT_LEVEL).unwrap()
+        compress_raw(data, DEFAULT_LEVEL).expect("compression failed")
     };
 
     context.result_blob(&compressed);

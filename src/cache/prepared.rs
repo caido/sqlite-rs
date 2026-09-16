@@ -23,7 +23,7 @@ pub(crate) fn get_encoder_in_cache(
         return Ok(dict);
     }
 
-    let raw = load_raw_dict(&key, conn)?;
+    let raw = load_raw_dict(&key, &conn.db)?;
 
     let mut cache = conn.cache.lock();
 
@@ -48,7 +48,7 @@ pub(crate) fn get_decoder_in_cache(
         return Ok(dict);
     }
 
-    let raw = load_raw_dict(&key, conn)?;
+    let raw = load_raw_dict(&key, &conn.db)?;
 
     let mut cache = conn.cache.lock();
 
@@ -67,7 +67,7 @@ pub(crate) fn warm_cache(
     column: &ColumnKey,
     level: Level,
 ) -> Result<(), DictError> {
-    let dict_id = match read_current_id(conn, column)? {
+    let dict_id = match read_current_id(&conn.db, column)? {
         Some(id) => id,
         None => {
             conn.cache.lock().clear_current_id(column);
@@ -112,6 +112,7 @@ mod tests {
 
     use libsqlite3_sys::{sqlite3, sqlite3_auto_extension, sqlite3_close, sqlite3_open, SQLITE_OK};
     use parking_lot::Once;
+    use sqlite_ffi::SqliteError;
     use zstd::{
         bulk::{Compressor, Decompressor},
         dict::{DecoderDictionary, EncoderDictionary},
@@ -133,6 +134,7 @@ mod tests {
         pub fn open() -> Self {
             static REGISTER: Once = Once::new();
             REGISTER.call_once(|| unsafe {
+                #[allow(clippy::missing_transmute_annotations)]
                 sqlite3_auto_extension(Some(std::mem::transmute(
                     sqlite3_compress_init as *const (),
                 )));
@@ -162,7 +164,7 @@ mod tests {
         }
     }
 
-    fn ensure_dicts_table(conn: &Connection) {
+    fn ensure_dicts_table(conn: &Connection) -> Result<(), SqliteError> {
         conn.db.batch_execute(
             r#"
             CREATE TABLE IF NOT EXISTS __compress_dicts (
@@ -175,11 +177,18 @@ mod tests {
                 is_current INTEGER NOT NULL DEFAULT 0
             );
             "#,
-        );
+        )?;
+
+        Ok(())
     }
 
-    fn insert_trained_dict(conn: &Connection, id: DictId, table_name: &str, column_name: &str) {
-        ensure_dicts_table(conn);
+    fn insert_trained_dict(
+        conn: &Connection,
+        id: DictId,
+        table_name: &str,
+        column_name: &str,
+    ) -> Result<(), SqliteError> {
+        ensure_dicts_table(conn)?;
 
         let samples: Vec<Vec<u8>> = (0..32)
             .map(|i| {
@@ -203,6 +212,8 @@ mod tests {
                 &dict,
             )
             .unwrap();
+
+        Ok(())
     }
 
     fn expect_encoder(
@@ -223,10 +234,10 @@ mod tests {
         let conn = db.conn();
 
         let id = DictId::new(2_001);
-        insert_trained_dict(&conn, id, "requests_raw", "data");
+        insert_trained_dict(conn, id, "requests_raw", "data").unwrap();
 
-        let encoder = expect_encoder(get_encoder_in_cache(&conn, SCHEMA, id, DEFAULT_LEVEL));
-        let decoder = expect_decoder(get_decoder_in_cache(&conn, SCHEMA, id));
+        let encoder = expect_encoder(get_encoder_in_cache(conn, SCHEMA, id, DEFAULT_LEVEL));
+        let decoder = expect_decoder(get_decoder_in_cache(conn, SCHEMA, id));
 
         let original = b"GET /api/users/42 HTTP/1.1\r\nHost: example.com\r\n\r\n";
         let mut compressor = Compressor::with_prepared_dictionary(&encoder).unwrap();
@@ -246,10 +257,10 @@ mod tests {
         let conn = db.conn();
 
         let id = DictId::new(2_002);
-        insert_trained_dict(&conn, id, "requests_raw", "data");
+        insert_trained_dict(conn, id, "requests_raw", "data").unwrap();
 
-        let encoder = expect_encoder(get_encoder_in_cache(&conn, SCHEMA, id, DEFAULT_LEVEL));
-        let decoder = expect_decoder(get_decoder_in_cache(&conn, SCHEMA, id));
+        let encoder = expect_encoder(get_encoder_in_cache(conn, SCHEMA, id, DEFAULT_LEVEL));
+        let decoder = expect_decoder(get_decoder_in_cache(conn, SCHEMA, id));
 
         let payloads: [&[u8]; 3] = [
             b"GET /api/users/1 HTTP/1.1\r\nHost: example.com\r\n\r\n",
@@ -273,10 +284,10 @@ mod tests {
         let db = TestDb::open();
         let conn = db.conn();
 
-        ensure_dicts_table(&conn);
+        ensure_dicts_table(conn).unwrap();
 
         assert!(matches!(
-            get_decoder_in_cache(&conn, SCHEMA, DictId::new(90_002)),
+            get_decoder_in_cache(conn, SCHEMA, DictId::new(90_002)),
             Err(crate::DictError::NotReady)
         ));
     }
@@ -286,10 +297,10 @@ mod tests {
         let db = TestDb::open();
         let conn = db.conn();
 
-        ensure_dicts_table(&conn);
+        ensure_dicts_table(conn).unwrap();
 
         assert!(matches!(
-            get_encoder_in_cache(&conn, SCHEMA, DictId::new(90_001), DEFAULT_LEVEL),
+            get_encoder_in_cache(conn, SCHEMA, DictId::new(90_001), DEFAULT_LEVEL),
             Err(crate::DictError::NotReady)
         ));
     }
@@ -300,10 +311,10 @@ mod tests {
         let conn = db.conn();
 
         let id = DictId::new(1_001);
-        insert_trained_dict(&conn, id, "requests_raw", "data");
+        insert_trained_dict(conn, id, "requests_raw", "data").unwrap();
 
-        let first = expect_encoder(get_encoder_in_cache(&conn, SCHEMA, id, DEFAULT_LEVEL));
-        let second = expect_encoder(get_encoder_in_cache(&conn, SCHEMA, id, DEFAULT_LEVEL));
+        let first = expect_encoder(get_encoder_in_cache(conn, SCHEMA, id, DEFAULT_LEVEL));
+        let second = expect_encoder(get_encoder_in_cache(conn, SCHEMA, id, DEFAULT_LEVEL));
         assert!(Arc::ptr_eq(&first, &second));
     }
 
@@ -313,10 +324,10 @@ mod tests {
         let conn = db.conn();
 
         let id = DictId::new(1_002);
-        insert_trained_dict(&conn, id, "requests_raw", "data");
+        insert_trained_dict(conn, id, "requests_raw", "data").unwrap();
 
-        let first = expect_decoder(get_decoder_in_cache(&conn, SCHEMA, id));
-        let second = expect_decoder(get_decoder_in_cache(&conn, SCHEMA, id));
+        let first = expect_decoder(get_decoder_in_cache(conn, SCHEMA, id));
+        let second = expect_decoder(get_decoder_in_cache(conn, SCHEMA, id));
 
         assert!(Arc::ptr_eq(&first, &second));
     }
@@ -327,10 +338,10 @@ mod tests {
         let conn = db.conn();
 
         let id = DictId::new(1_003);
-        insert_trained_dict(&conn, id, "requests_raw", "data");
+        insert_trained_dict(conn, id, "requests_raw", "data").unwrap();
 
-        let encoder = expect_encoder(get_encoder_in_cache(&conn, SCHEMA, id, DEFAULT_LEVEL));
-        let decoder = expect_decoder(get_decoder_in_cache(&conn, SCHEMA, id));
+        let encoder = expect_encoder(get_encoder_in_cache(conn, SCHEMA, id, DEFAULT_LEVEL));
+        let decoder = expect_decoder(get_decoder_in_cache(conn, SCHEMA, id));
 
         let original = b"GET /api/users/42 HTTP/1.1\r\nHost: example.com\r\n\r\n";
         let mut compressor = Compressor::with_prepared_dictionary(&encoder).unwrap();
@@ -383,8 +394,9 @@ mod tests {
         let db = TestDb::open();
         let conn = db.conn();
 
-        conn.db.batch_execute(
-            r#"
+        conn.db
+            .batch_execute(
+                r#"
         ATTACH DATABASE ':memory:' AS raw;
         ATTACH DATABASE ':memory:' AS archive;
 
@@ -407,29 +419,30 @@ mod tests {
             is_current INTEGER NOT NULL DEFAULT 0
         );
         "#,
-        );
+            )
+            .unwrap();
 
         let id = DictId::new(1);
         let archive_only = DictId::new(2);
 
-        seed_dict_into(&conn, "raw", id, "requests_raw", "data");
-        seed_dict_into(&conn, "archive", id, "requests_raw", "data");
-        seed_dict_into(&conn, "archive", archive_only, "requests_raw", "data");
+        seed_dict_into(conn, "raw", id, "requests_raw", "data");
+        seed_dict_into(conn, "archive", id, "requests_raw", "data");
+        seed_dict_into(conn, "archive", archive_only, "requests_raw", "data");
 
-        let raw_enc = expect_encoder(get_encoder_in_cache(&conn, "raw", id, DEFAULT_LEVEL));
-        let archive_enc = expect_encoder(get_encoder_in_cache(&conn, "archive", id, DEFAULT_LEVEL));
+        let raw_enc = expect_encoder(get_encoder_in_cache(conn, "raw", id, DEFAULT_LEVEL));
+        let archive_enc = expect_encoder(get_encoder_in_cache(conn, "archive", id, DEFAULT_LEVEL));
         assert!(!Arc::ptr_eq(&raw_enc, &archive_enc));
 
-        let raw_enc_again = expect_encoder(get_encoder_in_cache(&conn, "raw", id, DEFAULT_LEVEL));
+        let raw_enc_again = expect_encoder(get_encoder_in_cache(conn, "raw", id, DEFAULT_LEVEL));
         assert!(Arc::ptr_eq(&raw_enc, &raw_enc_again));
 
-        expect_decoder(get_decoder_in_cache(&conn, "archive", archive_only));
+        expect_decoder(get_decoder_in_cache(conn, "archive", archive_only));
         assert!(matches!(
-            get_encoder_in_cache(&conn, "raw", archive_only, DEFAULT_LEVEL),
+            get_encoder_in_cache(conn, "raw", archive_only, DEFAULT_LEVEL),
             Err(crate::DictError::NotReady)
         ));
         assert!(matches!(
-            get_decoder_in_cache(&conn, "raw", archive_only),
+            get_decoder_in_cache(conn, "raw", archive_only),
             Err(crate::DictError::NotReady)
         ));
     }

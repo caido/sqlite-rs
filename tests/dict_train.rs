@@ -13,20 +13,23 @@ fn train_persists_a_new_dictionary() {
     let db = common::TestDb::open();
     let conn = db.conn();
 
-    conn.batch_execute(
-        "
+    conn.database()
+        .batch_execute(
+            "
         ATTACH DATABASE ':memory:' AS raw;
         CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
         ",
-    );
+        )
+        .unwrap();
 
     for i in 0..sample_count {
         let sample = format!("GET /api/users/{i} HTTP/1.1\r\nHost: example.com\r\n\r\n");
-        conn.execute_blob(
-            "INSERT INTO raw.requests_raw (data) VALUES (?1) RETURNING id",
-            sample.as_bytes(),
-        )
-        .unwrap();
+        conn.database()
+            .execute_blob(
+                "INSERT INTO raw.requests_raw (data) VALUES (?1) RETURNING id",
+                sample.as_bytes(),
+            )
+            .unwrap();
     }
 
     let config = SetupConfig {
@@ -48,10 +51,12 @@ fn train_persists_a_new_dictionary() {
     let dict_ids = train_all(&db, &config, 1024).unwrap();
 
     let stored_id = conn
+        .database()
         .query_i64("SELECT id FROM raw.__compress_dicts")
         .unwrap() as u32;
 
     let dict_size = conn
+        .database()
         .query_i64("SELECT length(dict) FROM raw.__compress_dicts")
         .unwrap() as usize;
 
@@ -67,8 +72,9 @@ fn train_persists_dictionary_per_column() {
     let db = common::TestDb::open();
     let conn = db.conn();
 
-    conn.batch_execute(
-        "
+    conn.database()
+        .batch_execute(
+            "
         ATTACH DATABASE ':memory:' AS raw;
         CREATE TABLE raw.requests_raw (
             id INTEGER PRIMARY KEY,
@@ -76,17 +82,19 @@ fn train_persists_dictionary_per_column() {
             headers BLOB
         );
         ",
-    );
+        )
+        .unwrap();
 
     for i in 0..sample_count {
         let data = format!("GET /api/users/{i} HTTP/1.1\r\nHost: example.com\r\n\r\n");
         let headers = format!("content-type: application/json\r\nx-request-id: {i}\r\n");
 
-        conn.execute_blobs(
-            "INSERT INTO raw.requests_raw (data, headers) VALUES (?1, ?2)",
-            &[data.as_bytes(), headers.as_bytes()],
-        )
-        .unwrap();
+        conn.database()
+            .execute_blobs(
+                "INSERT INTO raw.requests_raw (data, headers) VALUES (?1, ?2)",
+                &[data.as_bytes(), headers.as_bytes()],
+            )
+            .unwrap();
     }
 
     let column = |name: &str| {
@@ -113,6 +121,7 @@ fn train_persists_dictionary_per_column() {
     assert_eq!(dict_ids.len(), 2);
 
     let columns = conn
+        .database()
         .query_strings(
             "SELECT column_name FROM raw.__compress_dicts \
          WHERE table_name = 'requests_raw' ORDER BY column_name",
@@ -122,11 +131,12 @@ fn train_persists_dictionary_per_column() {
     assert_eq!(columns, ["data", "headers"]);
     for id in dict_ids {
         assert_eq!(
-            conn.query_i64(&format!(
-                "SELECT COUNT(*) FROM raw.__compress_dicts WHERE id = {}",
-                id.get()
-            ))
-            .unwrap(),
+            conn.database()
+                .query_i64(&format!(
+                    "SELECT COUNT(*) FROM raw.__compress_dicts WHERE id = {}",
+                    id.get()
+                ))
+                .unwrap(),
             1
         );
     }
@@ -139,8 +149,9 @@ fn train_skips_column_without_enough_samples() {
     let db = common::TestDb::open();
     let conn = db.conn();
 
-    conn.batch_execute(
-        "
+    conn.database()
+        .batch_execute(
+            "
         ATTACH DATABASE ':memory:' AS raw;
         CREATE TABLE raw.requests_raw (
             id INTEGER PRIMARY KEY,
@@ -148,16 +159,18 @@ fn train_skips_column_without_enough_samples() {
             headers BLOB
         );
         ",
-    );
+        )
+        .unwrap();
 
     // `data` has enough samples; `headers` stays NULL → not enough
     for i in 0..sample_count {
         let data = format!("GET /api/users/{i} HTTP/1.1\r\nHost: example.com\r\n\r\n");
-        conn.execute_blob(
-            "INSERT INTO raw.requests_raw (data) VALUES (?1)",
-            data.as_bytes(),
-        )
-        .unwrap();
+        conn.database()
+            .execute_blob(
+                "INSERT INTO raw.requests_raw (data) VALUES (?1) RETURNING id",
+                data.as_bytes(),
+            )
+            .unwrap();
     }
 
     let config = SetupConfig {
@@ -188,6 +201,7 @@ fn train_skips_column_without_enough_samples() {
     assert_eq!(dict_ids.len(), 1);
 
     let count = conn
+        .database()
         .query_i64(
             "SELECT COUNT(*) FROM raw.__compress_dicts \
          WHERE table_name = 'requests_raw' AND column_name = 'data'",
@@ -204,8 +218,9 @@ fn train_by_column_persists_one_column() {
     let db = common::TestDb::open();
     let conn = db.conn();
 
-    conn.batch_execute(
-        "
+    conn.database()
+        .batch_execute(
+            "
         ATTACH DATABASE ':memory:' AS raw;
         CREATE TABLE raw.requests_raw (
             id INTEGER PRIMARY KEY,
@@ -213,16 +228,18 @@ fn train_by_column_persists_one_column() {
             headers BLOB
         );
         ",
-    );
+        )
+        .unwrap();
 
     for i in 0..sample_count {
         let data = format!("GET /api/users/{i} HTTP/1.1\r\nHost: example.com\r\n\r\n");
         let headers = format!("content-type: application/json\r\nx-request-id: {i}\r\n");
-        conn.execute_blobs(
-            "INSERT INTO raw.requests_raw (data, headers) VALUES (?1, ?2)",
-            &[data.as_bytes(), headers.as_bytes()],
-        )
-        .unwrap();
+        conn.database()
+            .execute_blobs(
+                "INSERT INTO raw.requests_raw (data, headers) VALUES (?1, ?2)",
+                &[data.as_bytes(), headers.as_bytes()],
+            )
+            .unwrap();
     }
 
     let table = SetupTable {
@@ -264,6 +281,7 @@ fn train_by_column_persists_one_column() {
     assert_eq!(dict_id.unwrap().get(), 1);
 
     let count = conn
+        .database()
         .query_i64(
             "SELECT COUNT(*) FROM raw.__compress_dicts \
          WHERE table_name = 'requests_raw' AND column_name = 'data'",
@@ -290,22 +308,25 @@ fn sample_config(min_samples: usize) -> SetupConfig {
 }
 
 fn setup_raw_table(conn: &Connection) {
-    conn.batch_execute(
-        "
+    conn.database()
+        .batch_execute(
+            "
         ATTACH DATABASE ':memory:' AS raw;
         CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
         ",
-    );
+        )
+        .unwrap();
 }
 
 fn insert_samples(conn: &Connection, count: usize) {
     for i in 0..count {
         let sample = format!("GET /api/users/{i} HTTP/1.1\r\nHost: example.com\r\n\r\n");
-        conn.execute_blob(
-            "INSERT INTO raw.requests_raw (data) VALUES (?1) RETURNING id",
-            sample.as_bytes(),
-        )
-        .unwrap();
+        conn.database()
+            .execute_blob(
+                "INSERT INTO raw.requests_raw (data) VALUES (?1) RETURNING id",
+                sample.as_bytes(),
+            )
+            .unwrap();
     }
 }
 
@@ -316,8 +337,8 @@ fn train_stores_row_count() {
     let db = common::TestDb::open();
     let conn = db.conn();
 
-    setup_raw_table(&conn);
-    insert_samples(&conn, sample_count);
+    setup_raw_table(conn);
+    insert_samples(conn, sample_count);
 
     let config = sample_config(sample_count);
 
@@ -330,6 +351,7 @@ fn train_stores_row_count() {
     let dict_id = dict_ids[0];
 
     let stored_id = conn
+        .database()
         .query_i64(&format!(
             "SELECT id FROM raw.__compress_dicts WHERE id = {}",
             dict_id.get()
@@ -339,6 +361,7 @@ fn train_stores_row_count() {
     assert_eq!(stored_id, dict_id.get() as i64);
 
     let row_count = conn
+        .database()
         .query_i64(&format!(
             "SELECT row_count FROM raw.__compress_dicts WHERE id = {}",
             dict_id.get()
@@ -355,8 +378,8 @@ fn train_skips_when_growth_below_threshold() {
     let db = common::TestDb::open();
     let conn = db.conn();
 
-    setup_raw_table(&conn);
-    insert_samples(&conn, sample_count);
+    setup_raw_table(conn);
+    insert_samples(conn, sample_count);
 
     let config = sample_config(sample_count);
     setup(&db, &config).unwrap();
@@ -366,12 +389,13 @@ fn train_skips_when_growth_below_threshold() {
     assert_eq!(first[0].get(), 1);
 
     // +100 samples << RETRAIN_GROWTH (5000)
-    insert_samples(&conn, 100);
+    insert_samples(conn, 100);
 
     let second = train_all(&db, &config, 1024).unwrap();
     assert!(second.is_empty());
 
     let count: i64 = conn
+        .database()
         .query_i64("SELECT COUNT(*) FROM raw.__compress_dicts")
         .unwrap();
     assert_eq!(count, 1);
@@ -385,28 +409,28 @@ fn train_retrains_when_growth_reaches_threshold() {
     let db = common::TestDb::open();
     let conn = db.conn();
 
-    setup_raw_table(&conn);
-    insert_samples(&conn, sample_count);
+    setup_raw_table(conn);
+    insert_samples(conn, sample_count);
 
     let config = sample_config(sample_count);
     setup(&db, &config).unwrap();
 
     // Simulate a previous train with low row_count for this column
-    assert_eq!(
-        conn.batch_execute(&format!(
-            "INSERT INTO raw.__compress_dicts \
+    let res = conn.database().batch_execute(&format!(
+        "INSERT INTO raw.__compress_dicts \
          (id, dict, trained_at, table_name, column_name, row_count) \
          VALUES (1, X'00', strftime('%s','now'), \
          'requests_raw', 'data', {prior_row_count})"
-        )),
-        0
-    );
+    ));
+
+    assert_eq!(res.unwrap(), 0);
 
     let dict_ids = train_all(&db, &config, 1024).unwrap();
     assert_eq!(dict_ids.len(), 1);
     assert_eq!(dict_ids[0].get(), 2);
 
     let row_count = conn
+        .database()
         .query_i64(&format!(
             "SELECT row_count FROM raw.__compress_dicts WHERE id = {}",
             dict_ids[0].get()
@@ -423,20 +447,23 @@ fn train_all_marks_dict_as_current() {
     let db = common::TestDb::open();
     let conn = db.conn();
 
-    conn.batch_execute(
-        "
+    conn.database()
+        .batch_execute(
+            "
         ATTACH DATABASE ':memory:' AS raw;
         CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
         ",
-    );
+        )
+        .unwrap();
 
     for i in 0..sample_count {
         let sample = format!("GET /api/users/{i} HTTP/1.1\r\nHost: example.com\r\n\r\n");
-        conn.execute_blob(
-            "INSERT INTO raw.requests_raw (data) VALUES (?1) RETURNING id",
-            sample.as_bytes(),
-        )
-        .unwrap();
+        conn.database()
+            .execute_blob(
+                "INSERT INTO raw.requests_raw (data) VALUES (?1) RETURNING id",
+                sample.as_bytes(),
+            )
+            .unwrap();
     }
 
     let config = SetupConfig {
@@ -459,6 +486,7 @@ fn train_all_marks_dict_as_current() {
     assert_eq!(dict_ids.len(), 1);
 
     let current = conn
+        .database()
         .query_i64(
             "SELECT id FROM raw.__compress_dicts \
          WHERE table_name = 'requests_raw' \

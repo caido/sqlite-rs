@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+use sqlite_ffi::Database;
+
 use super::{SetupConfig, SetupError};
 use crate::{
     cache::warm_cache,
@@ -10,13 +12,13 @@ use crate::{
 
 /// For each schema in the [`SetupConfig`] checks if the dictionary table exists.
 /// If not, create it.
-fn ensure_table_exists(conn: &Connection, config: &SetupConfig) -> Result<(), SetupError> {
+fn ensure_table_exists(db: &Database, config: &SetupConfig) -> Result<(), SetupError> {
     let schemas: HashSet<_> = config.tables.iter().map(|table| &table.schema).collect();
 
     for schema in schemas {
         let schema = schema.quote();
 
-        conn.db.batch_execute(&format!(
+        db.batch_execute(&format!(
             "
         CREATE TABLE IF NOT EXISTS {schema}.{DICT_TABLE_NAME} (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,7 +30,8 @@ fn ensure_table_exists(conn: &Connection, config: &SetupConfig) -> Result<(), Se
             is_current INTEGER NOT NULL DEFAULT 0
         );
     "
-        ));
+        ))
+        .map_err(SetupError::from_conn)?;
     }
 
     Ok(())
@@ -39,7 +42,7 @@ fn ensure_table_exists(conn: &Connection, config: &SetupConfig) -> Result<(), Se
 /// By [get_decoder_cached](crate::dict::get_decoder_cached), [get_encoder_cached](crate::dict::get_encoder_cached),
 /// the dictionary is cached in memory.
 pub(super) fn init_dict(conn: &Connection, config: &SetupConfig) -> Result<(), SetupError> {
-    ensure_table_exists(&conn, config)?;
+    ensure_table_exists(conn.database(), config)?;
 
     for table in &config.tables {
         for column in &table.columns {
@@ -49,7 +52,7 @@ pub(super) fn init_dict(conn: &Connection, config: &SetupConfig) -> Result<(), S
                 column.name.as_str(),
             );
 
-            warm_cache(&conn, &key, config.compression_level)
+            warm_cache(conn, &key, config.compression_level)
                 .map_err(|e| SetupError::DictTrain(e.to_string()))?;
         }
     }

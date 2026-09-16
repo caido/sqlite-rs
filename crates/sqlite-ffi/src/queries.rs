@@ -29,6 +29,7 @@ impl Database {
                     SQLITE_DONE => break,
                     code => {
                         return Err(SqliteError::Sqlite {
+                            operation: "query strings",
                             code,
                             message: "step failed".into(),
                         });
@@ -58,6 +59,7 @@ impl Database {
                     SQLITE_DONE => break,
                     code => {
                         return Err(SqliteError::Sqlite {
+                            operation: "query blobs",
                             code,
                             message: "step failed".into(),
                         });
@@ -75,8 +77,9 @@ impl Database {
                     let value = sqlite3_column_int64(stmt, 0);
                     Ok(value)
                 }
-                SQLITE_DONE => Ok(0), //add special msg;
+                SQLITE_DONE => Ok(0),
                 code => Err(SqliteError::Sqlite {
+                    operation: "query i64",
                     code,
                     message: "step failed".into(),
                 }),
@@ -84,17 +87,27 @@ impl Database {
         })
     }
 
-    pub fn batch_execute(&self, sql: &str) -> i32 {
-        let c_sql = CString::new(sql);
+    pub fn batch_execute(&self, sql: &str) -> Result<i32, SqliteError> {
+        let c_sql = CString::new(sql)?;
 
         unsafe {
-            sqlite3_exec(
+            let rc = sqlite3_exec(
                 self.conn.as_ptr(),
-                c_sql.unwrap().as_ptr(),
+                c_sql.as_ptr(),
                 None,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
-            )
+            );
+
+            if rc != SQLITE_OK {
+                return Err(SqliteError::Sqlite {
+                    operation: "batch execute",
+                    code: rc,
+                    message: "exec failed".into(),
+                });
+            }
+
+            Ok(rc)
         }
     }
 
@@ -105,10 +118,12 @@ impl Database {
                 1, // ?1
                 blob.as_ptr().cast(),
                 blob.len() as i32,
-                SQLITE_TRANSIENT(), // SQLite copie le blob
+                SQLITE_TRANSIENT(),
             );
+
             if rc != SQLITE_OK {
                 return Err(SqliteError::Sqlite {
+                    operation: "execute blob",
                     code: rc,
                     message: "bind failed".into(),
                 });
@@ -117,6 +132,7 @@ impl Database {
             match sqlite3_step(stmt) {
                 SQLITE_ROW => Ok(sqlite3_column_int64(stmt, 0)),
                 code => Err(SqliteError::Sqlite {
+                    operation: "execute blob",
                     code,
                     message: "step failed".into(),
                 }),
@@ -137,6 +153,7 @@ impl Database {
 
                 if rc != SQLITE_OK {
                     return Err(SqliteError::Sqlite {
+                        operation: "execute blobs",
                         code: rc,
                         message: "bind failed".into(),
                     });
@@ -146,6 +163,7 @@ impl Database {
             match sqlite3_step(stmt) {
                 SQLITE_DONE => Ok(()),
                 code => Err(SqliteError::Sqlite {
+                    operation: "execute blobs",
                     code,
                     message: "step failed".into(),
                 }),
@@ -160,20 +178,13 @@ fn with_stmt<T>(
     f: impl FnOnce(*mut sqlite3_stmt) -> Result<T, SqliteError>,
 ) -> Result<T, SqliteError> {
     let mut stmt = std::ptr::null_mut();
-    let c_sql = CString::new(sql);
+    let c_sql = CString::new(sql)?;
 
-    let rc = unsafe {
-        sqlite3_prepare_v2(
-            db,
-            c_sql.unwrap().as_ptr(),
-            -1,
-            &mut stmt,
-            std::ptr::null_mut(),
-        )
-    };
+    let rc = unsafe { sqlite3_prepare_v2(db, c_sql.as_ptr(), -1, &mut stmt, std::ptr::null_mut()) };
 
     if rc != SQLITE_OK {
         return Err(SqliteError::Sqlite {
+            operation: "prepare statement",
             code: rc,
             message: "prepare failed".into(),
         });

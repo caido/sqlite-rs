@@ -10,15 +10,14 @@ fn setup_table_does_not_exist() {
     let db = common::TestDb::open();
     let conn = db.conn();
 
-    assert_eq!(
-        conn.batch_execute(
-            r#"
+    let res = conn.database().batch_execute(
+        r#"
             ATTACH DATABASE ':memory:' AS raw;
             CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
             "#,
-        ),
-        0 // SQLITE_OK
     );
+
+    assert_eq!(res.unwrap(), 0);
 
     let config = SetupConfig {
         tables: vec![SetupTable {
@@ -37,6 +36,7 @@ fn setup_table_does_not_exist() {
     setup(&db, &config).unwrap();
 
     let count = conn
+        .database()
         .query_i64(
             "SELECT COUNT(*) FROM raw.sqlite_master \
              WHERE type='table' AND name='__compress_dicts'",
@@ -50,8 +50,9 @@ fn setup_table_already_exists() {
     let db = common::TestDb::open();
     let conn = db.conn();
 
-    conn.batch_execute(
-        r#"
+    conn.database()
+        .batch_execute(
+            r#"
             ATTACH DATABASE ':memory:' AS raw;
             CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
             CREATE TABLE raw.__compress_dicts (
@@ -64,7 +65,8 @@ fn setup_table_already_exists() {
                 is_current INTEGER NOT NULL DEFAULT 0
             );
         "#,
-    );
+        )
+        .unwrap();
 
     let config = SetupConfig {
         tables: vec![SetupTable {
@@ -83,6 +85,7 @@ fn setup_table_already_exists() {
     setup(&db, &config).unwrap();
 
     let count: i64 = conn
+        .database()
         .query_i64(
             "SELECT COUNT(*) FROM raw.sqlite_master WHERE type='table' AND name='__compress_dicts'",
         )
@@ -95,14 +98,16 @@ fn setup_creates_dict_table_per_schema() {
     let db = common::TestDb::open();
     let conn = db.conn();
 
-    conn.batch_execute(
-        r#"
+    conn.database()
+        .batch_execute(
+            r#"
         ATTACH DATABASE ':memory:' AS raw;
         ATTACH DATABASE ':memory:' AS archive;
         CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
         CREATE TABLE archive.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
         "#,
-    );
+        )
+        .unwrap();
 
     let column = || {
         SetupColumn::new(
@@ -133,6 +138,7 @@ fn setup_creates_dict_table_per_schema() {
 
     for schema in ["raw", "archive"] {
         let count: i64 = conn
+            .database()
             .query_i64(&format!(
                 "SELECT COUNT(*) FROM {schema}.sqlite_master \
                      WHERE type = 'table' AND name = '__compress_dicts'"

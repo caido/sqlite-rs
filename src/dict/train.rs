@@ -14,14 +14,11 @@ use crate::{
 const SAMPLE_BATCH_SIZE: usize = 64;
 const SAVEPOINT: &str = "sqlite_compress_persist_dict";
 
-pub fn train_all<C>(
+pub fn train_all<C: SetupConnection>(
     conn: &C,
     config: &SetupConfig,
     dict_capacity: usize,
-) -> Result<Vec<DictId>, SetupError>
-where
-    C: SetupConnection,
-{
+) -> Result<Vec<DictId>, SetupError> {
     let mut dict_ids = Vec::new();
 
     for (table, column) in config.iter_columns() {
@@ -48,14 +45,15 @@ pub fn train_by_column<C: SetupConnection>(
         table.name.as_str(),
         column.name.as_str(),
     );
+
     let table_name = table.as_qualified_name();
     let column_name = column.name.quote();
     let dict_store = quote_qualified(key.schema(), DICT_TABLE_NAME);
 
-    let conn = Connection::from_db(conn.sqlite_handle()).unwrap();
+    let conn = Connection::from_db(conn.sqlite_handle())?;
 
     let (enough, available) =
-        has_enough_samples(&conn, &table_name, &column_name, column.min_samples)?;
+        has_enough_samples(conn, &table_name, &column_name, column.min_samples)?;
 
     if !enough {
         return Ok(None);
@@ -73,7 +71,7 @@ pub fn train_by_column<C: SetupConnection>(
     }
 
     let dictionary = build_dictionary(
-        &conn,
+        conn,
         key.schema(),
         &table_name,
         &column_name,
@@ -114,7 +112,7 @@ pub(crate) fn decode_sample(
         return decompress_raw(payload, len);
     }
 
-    let decoder = get_decoder_in_cache(&conn, schema, dict_id).unwrap();
+    let decoder = get_decoder_in_cache(conn, schema, dict_id)?;
 
     decompress_with_decoder(payload, &decoder, len).map_err(CodecError::DecompressionFailed)
 }
@@ -274,10 +272,15 @@ fn persist_dictionary(
         quote_literal(column_name)
     );
 
-    conn.db.batch_execute(&format!("SAVEPOINT {SAVEPOINT};"));
+    conn.db
+        .batch_execute(&format!("SAVEPOINT {SAVEPOINT};"))
+        .map_err(SetupError::from_conn)?;
 
     let result = (|| -> Result<i64, SetupError> {
-        conn.db.batch_execute(&demote_sql);
+        conn.db
+            .batch_execute(&demote_sql)
+            .map_err(SetupError::from_conn)?;
+
         conn.db
             .execute_blob(&insert_sql, dictionary)
             .map_err(SetupError::from_conn)
@@ -286,7 +289,9 @@ fn persist_dictionary(
     match result {
         Ok(id) => {
             conn.db
-                .batch_execute(&format!("RELEASE SAVEPOINT {SAVEPOINT};"));
+                .batch_execute(&format!("RELEASE SAVEPOINT {SAVEPOINT};"))
+                .map_err(SetupError::from_conn)?;
+
             u32::try_from(id)
                 .map(DictId::new)
                 .map_err(|_| SetupError::DictTrain("dictionary id overflow".to_string()))

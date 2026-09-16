@@ -1,4 +1,4 @@
-use crate::{conn::Connection, dict::errors::DictError, utils::quote_qualified};
+use crate::{dict::errors::DictError, utils::quote_qualified};
 
 mod current;
 pub mod errors;
@@ -6,16 +6,16 @@ mod train;
 mod types;
 
 pub(crate) use current::read_current_id;
+use sqlite_ffi::Database;
 pub use train::{train_all, train_by_column};
 pub(crate) use types::DictKey;
 pub use types::{ColumnKey, DictId};
 
 pub static DICT_TABLE_NAME: &str = "__compress_dicts";
 
-pub(crate) fn load_raw_dict(dict_key: &DictKey, conn: &Connection) -> Result<Vec<u8>, DictError> {
+pub(crate) fn load_raw_dict(dict_key: &DictKey, db: &Database) -> Result<Vec<u8>, DictError> {
     let table = quote_qualified(&dict_key.schema, DICT_TABLE_NAME);
-    let rows = conn
-        .db
+    let rows = db
         .query_blobs(&format!(
             "SELECT dict AS value FROM {table} WHERE id = {}",
             dict_key.id.get()

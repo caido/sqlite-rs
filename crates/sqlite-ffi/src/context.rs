@@ -1,6 +1,6 @@
 use std::{ffi::c_void, ptr::NonNull};
 
-use libsqlite3_sys::{sqlite3_context, sqlite3_result_blob};
+use libsqlite3_sys::{sqlite3_context, sqlite3_result_blob, sqlite3_result_error};
 
 pub struct Context {
     pub(crate) ctx: NonNull<sqlite3_context>,
@@ -9,7 +9,7 @@ pub struct Context {
 impl Context {
     pub fn from_raw(ctx: *mut sqlite3_context) -> Self {
         Self {
-            ctx: NonNull::new(ctx).unwrap(),
+            ctx: NonNull::new(ctx).expect("context pointer is not valid"),
         }
     }
 
@@ -20,6 +20,12 @@ impl Context {
                 blob.as_ptr().cast::<c_void>(),
                 blob.len() as i32,
             );
+        }
+    }
+
+    pub fn result_error(&self, error: &str) {
+        unsafe {
+            sqlite3_result_error(self.ctx.as_ptr(), error.as_ptr().cast(), error.len() as i32);
         }
     }
 }

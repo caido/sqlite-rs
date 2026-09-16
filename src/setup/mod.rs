@@ -15,11 +15,11 @@ use crate::conn::Connection;
 
 /// Create decode views and the dictionary store for [`SetupConfig`] tables, then warm the dict cache.
 pub fn setup<C: SetupConnection>(conn: &C, config: &SetupConfig) -> Result<(), SetupError> {
-    let conn = Connection::from_db(conn.sqlite_handle()).unwrap();
+    let conn = Connection::from_db(conn.sqlite_handle())?;
 
     config.validate()?;
 
-    init_view(&conn, config)?;
+    init_view(conn, config)?;
     init_dict(conn, config)?;
 
     Ok(())

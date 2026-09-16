@@ -4,6 +4,8 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum SetupError {
+    #[error("SQLite error: {0}")]
+    Sqlite(#[from] sqlite_ffi::SqliteError),
     #[error("connection error: {0}")]
     Connection(#[source] Box<dyn StdError + Send + Sync>),
     #[error("table not found: {0}")]

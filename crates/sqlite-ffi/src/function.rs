@@ -42,19 +42,17 @@ impl Database {
         text_representation: TextRep,
         func: F,
     ) -> Result<(), SqliteError> {
-        let c_name = CString::new(name);
+        let c_name = CString::new(name)?;
         let (p_app, x_func, x_destroy) = unsafe { to_sqlite_func(func) };
 
         let rc = unsafe {
             create_function_v2_raw(
                 self.conn.as_ptr(),
-                c_name.unwrap().as_ptr(),
+                c_name.as_ptr(),
                 arg_number,
                 text_representation.as_sqlite(),
                 p_app,
                 x_func,
-                None,
-                None,
                 x_destroy,
             )
         };
@@ -65,7 +63,11 @@ impl Database {
                     .to_string_lossy()
                     .into_owned()
             };
-            return Err(SqliteError::Sqlite { code: rc, message });
+            return Err(SqliteError::Sqlite {
+                operation: "create function v2",
+                code: rc,
+                message,
+            });
         }
 
         Ok(())
@@ -106,8 +108,6 @@ unsafe fn create_function_v2_raw(
     text_rep: c_int,
     p_app: *mut c_void,
     x_func: XFunc,
-    x_step: XFunc,
-    x_final: Option<unsafe extern "C" fn(arg1: *mut sqlite3_context)>,
     x_destroy: Option<unsafe extern "C" fn(arg1: *mut ::core::ffi::c_void)>,
 ) -> i32 {
     unsafe {
@@ -118,8 +118,8 @@ unsafe fn create_function_v2_raw(
             text_rep,
             p_app,
             x_func,
-            x_step,
-            x_final,
+            None,
+            None,
             x_destroy,
         )
     }
@@ -127,12 +127,14 @@ unsafe fn create_function_v2_raw(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::ptr;
+
     use libsqlite3_sys::{
         SQLITE_ROW, sqlite3_close, sqlite3_column_int, sqlite3_finalize, sqlite3_open,
         sqlite3_prepare_v2, sqlite3_result_int64, sqlite3_step,
     };
-    use std::ptr;
+
+    use super::*;
 
     #[test]
     fn registers_and_calls_scalar() {

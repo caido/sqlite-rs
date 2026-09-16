@@ -1,7 +1,7 @@
 use std::{ptr, sync::Once};
 
 use libsqlite3_sys::{sqlite3, sqlite3_auto_extension, sqlite3_close, sqlite3_open, SQLITE_OK};
-use sqlite_compress::{Connection, SetupConnection, sqlite3_compress_init};
+use sqlite_compress::{sqlite3_compress_init, Connection, SetupConnection};
 
 #[allow(dead_code)]
 pub const DEFAULT_MIN_SAMPLES: usize = 1000;
@@ -9,13 +9,14 @@ pub const DEFAULT_MIN_SAMPLES: usize = 1000;
 pub const DEFAULT_MAX_SAMPLES: usize = 10000;
 
 pub struct TestDb {
-    db: *mut sqlite3,
+    pub(crate) db: *mut sqlite3,
 }
 
 impl TestDb {
     pub fn open() -> Self {
         static REGISTER: Once = Once::new();
         REGISTER.call_once(|| unsafe {
+            #[allow(clippy::missing_transmute_annotations)]
             sqlite3_auto_extension(Some(std::mem::transmute(
                 sqlite3_compress_init as *const (),
             )));

@@ -13,18 +13,16 @@ impl Connection {
     const NAME: &str = "sqlite-compress";
 
     pub fn attach(db: Database) -> Result<(), SqliteError> {
-        let raw = Box::into_raw(Box::new(Self {
+        let connection = Box::new(Self {
             db,
             cache: Mutex::new(ConnectionCache::new()),
-        }));
+        });
 
-        match db.set_client_data(Self::NAME, raw) {
-            Ok(()) => Ok(()),
-            Err(e) => {
-                drop(unsafe { Box::from_raw(raw) });
-                Err(e)
-            }
-        }
+        db.set_client_data(Self::NAME, connection)
+    }
+
+    pub fn database(&self) -> &Database {
+        &self.db
     }
 
     pub fn from_db(db: *mut sqlite3) -> Result<&'static Self, SqliteError> {
@@ -33,7 +31,7 @@ impl Connection {
     }
 
     pub fn from_context(context: &Context) -> Result<&'static Self, SqliteError> {
-        let db = Database::from_context(&context)?;
+        let db = Database::from_context(context)?;
         db.get_client_data(Self::NAME)
     }
 }

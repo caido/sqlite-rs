@@ -8,12 +8,15 @@ type XDestroy = Option<unsafe extern "C" fn(*mut c_void)>;
 
 impl Database {
     pub fn get_client_data<T>(&self, name: &str) -> Result<&'static T, SqliteError> {
-        let c_name = CString::new(name);
+        let c_name = CString::new(name)?;
 
-        let client = unsafe { get_client_data_raw(self.conn.as_ptr(), c_name.unwrap().as_ptr()) };
+        let client = unsafe { get_client_data_raw(self.conn.as_ptr(), c_name.as_ptr()) };
 
         if client.is_null() {
-            return Err(SqliteError::InvalidClientName(name.to_string()));
+            return Err(SqliteError::PointerNotValid(format!(
+                "client data for name: {}",
+                name
+            )));
         }
 
         let client = client.cast::<T>();
@@ -23,19 +26,20 @@ impl Database {
         Ok(client.expect("can't cast"))
     }
 
-    pub fn set_client_data<T>(&self, name: &str, p: *mut T) -> Result<(), SqliteError> {
-        let c_name = CString::new(name);
+    pub fn set_client_data<T>(&self, name: &str, value: Box<T>) -> Result<(), SqliteError> {
+        let c_name = CString::new(name)?;
 
-        let (p, x_destroy) = unsafe { to_sqlite_destroy(p) };
+        let pointer = Box::into_raw(value);
 
-        let rc = unsafe {
-            set_client_data_raw(self.conn.as_ptr(), c_name.unwrap().as_ptr(), p, x_destroy)
-        };
+        let (p, x_destroy) = unsafe { to_sqlite_destroy(pointer) };
+
+        let rc = unsafe { set_client_data_raw(self.conn.as_ptr(), c_name.as_ptr(), p, x_destroy) };
 
         if rc != SQLITE_OK {
             return Err(SqliteError::Sqlite {
+                operation: "set client data",
                 code: rc,
-                message: "cant't set client data".into(),
+                message: format!("cant't set client data for name: {}", name),
             });
         }
 
@@ -70,10 +74,14 @@ unsafe fn set_client_data_raw(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::{
+        ptr,
+        sync::atomic::{AtomicBool, Ordering},
+    };
+
     use libsqlite3_sys::{sqlite3_close, sqlite3_open};
-    use std::ptr;
-    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use super::*;
 
     struct Counter {
         value: u32,
