@@ -16,7 +16,7 @@ fn ensure_table_exists(
     table_name: &TableName,
 ) -> Result<(), SetupError> {
     let count = conn
-        .query_i64(&format!(
+        .db.query_i64(&format!(
             "SELECT COUNT(*) FROM {schema}.sqlite_master WHERE type = 'table' AND name = {table_name}"
         ))
         .map_err(SetupError::from_conn)?;
@@ -41,6 +41,7 @@ fn ensure_column_exist(
     column: &ColumnName,
 ) -> Result<(), SetupError> {
     let col_exists = conn
+        .db
         .query_i64(&format!(
             "SELECT COUNT(*) FROM pragma_table_info({table}, {schema}) WHERE name = {column}"
         ))
@@ -61,10 +62,11 @@ fn table_column_names(
     schema: &SchemaName,
     table: &TableName,
 ) -> Result<Vec<String>, SetupError> {
-    conn.query_strings(&format!(
-        "SELECT name AS value FROM pragma_table_info({table}, {schema}) ORDER BY cid"
-    ))
-    .map_err(SetupError::from_conn)
+    conn.db
+        .query_strings(&format!(
+            "SELECT name AS value FROM pragma_table_info({table}, {schema}) ORDER BY cid"
+        ))
+        .map_err(SetupError::from_conn)
 }
 
 fn build_decoded_select_list(
@@ -91,6 +93,7 @@ fn ensure_table_view_exists(conn: &Connection, table: &SetupTable) -> Result<(),
     let view_name = table.name.decoded_view_name();
     let schema_qualified = table.as_qualified_schema_name();
     let count = conn
+        .db
         .query_i64(&format!(
             "SELECT COUNT(*) FROM {schema_qualified}.sqlite_master \
              WHERE type = 'view' AND name = {}",
@@ -107,7 +110,7 @@ fn ensure_table_view_exists(conn: &Connection, table: &SetupTable) -> Result<(),
     let select_list = build_decoded_select_list(&table_columns, &compressed, table.schema.as_str());
     let qualified_view = table.as_qualified_decoded_view_name();
 
-    conn.batch_execute(&format!(
+    conn.db.batch_execute(&format!(
         "CREATE VIEW IF NOT EXISTS {qualified_view} AS \
          SELECT {select_list} FROM {}",
         table.as_qualified_table_name()

@@ -144,6 +144,7 @@ fn has_enough_samples(
     min_samples: usize,
 ) -> Result<(bool, i64), SetupError> {
     let count = conn
+        .db
         .query_i64(&format!(
             "SELECT COUNT(*) FROM {table_name} \
          WHERE {column_name} IS NOT NULL AND length({column_name}) > 0"
@@ -167,6 +168,7 @@ fn has_retrain_required(
     retrain_growth: usize,
 ) -> Result<bool, SetupError> {
     let last = conn
+        .db
         .query_i64(&format!(
             "SELECT COALESCE(\
                 (SELECT row_count FROM {dict_table} \
@@ -210,7 +212,7 @@ fn build_dictionary(
          LIMIT {batch_limit} OFFSET {offset}"
         );
 
-        let batch = conn.query_blobs(&sql).map_err(SetupError::from_conn)?;
+        let batch = conn.db.query_blobs(&sql).map_err(SetupError::from_conn)?;
 
         if batch.is_empty() {
             break;
@@ -272,23 +274,25 @@ fn persist_dictionary(
         quote_literal(column_name)
     );
 
-    conn.batch_execute(&format!("SAVEPOINT {SAVEPOINT};"));
+    conn.db.batch_execute(&format!("SAVEPOINT {SAVEPOINT};"));
 
     let result = (|| -> Result<i64, SetupError> {
-        conn.batch_execute(&demote_sql);
-        conn.execute_blob(&insert_sql, dictionary)
+        conn.db.batch_execute(&demote_sql);
+        conn.db
+            .execute_blob(&insert_sql, dictionary)
             .map_err(SetupError::from_conn)
     })();
 
     match result {
         Ok(id) => {
-            conn.batch_execute(&format!("RELEASE SAVEPOINT {SAVEPOINT};"));
+            conn.db
+                .batch_execute(&format!("RELEASE SAVEPOINT {SAVEPOINT};"));
             u32::try_from(id)
                 .map(DictId::new)
                 .map_err(|_| SetupError::DictTrain("dictionary id overflow".to_string()))
         }
         Err(e) => {
-            let _ = conn.batch_execute(&format!(
+            let _ = conn.db.batch_execute(&format!(
                 "ROLLBACK TO SAVEPOINT {SAVEPOINT}; RELEASE SAVEPOINT {SAVEPOINT};"
             ));
             Err(e)

@@ -2,41 +2,45 @@ use std::ffi::{CString, c_char, c_void};
 
 use libsqlite3_sys::{SQLITE_OK, sqlite3, sqlite3_get_clientdata, sqlite3_set_clientdata};
 
-use crate::error::SqliteError;
+use crate::{Database, error::SqliteError};
 
 type XDestroy = Option<unsafe extern "C" fn(*mut c_void)>;
 
-pub fn get_client_data<T>(db: *mut sqlite3, name: &str) -> Result<&T, SqliteError> {
-    let c_name = CString::new(name);
+impl Database {
+    pub fn get_client_data<T>(&self, name: &str) -> Result<&'static T, SqliteError> {
+        let c_name = CString::new(name);
 
-    let client = unsafe { get_client_data_raw(db, c_name.unwrap().as_ptr()) };
+        let client = unsafe { get_client_data_raw(self.conn.as_ptr(), c_name.unwrap().as_ptr()) };
 
-    if client.is_null() {
-        return Err(SqliteError::InvalidClientName(name.to_string()));
+        if client.is_null() {
+            return Err(SqliteError::InvalidClientName(name.to_string()));
+        }
+
+        let client = client.cast::<T>();
+
+        let client = unsafe { client.as_ref() };
+
+        Ok(client.expect("can't cast"))
     }
 
-    let client = client.cast::<T>();
+    pub fn set_client_data<T>(&self, name: &str, p: *mut T) -> Result<(), SqliteError> {
+        let c_name = CString::new(name);
 
-    let client = unsafe { client.as_ref() };
+        let (p, x_destroy) = unsafe { to_sqlite_destroy(p) };
 
-    Ok(client.expect("can't cast"))
-}
+        let rc = unsafe {
+            set_client_data_raw(self.conn.as_ptr(), c_name.unwrap().as_ptr(), p, x_destroy)
+        };
 
-pub fn set_client_data<T>(db: *mut sqlite3, name: &str, p: *mut T) -> Result<(), SqliteError> {
-    let c_name = CString::new(name);
+        if rc != SQLITE_OK {
+            return Err(SqliteError::Sqlite {
+                code: rc,
+                message: "cant't set client data".into(),
+            });
+        }
 
-    let (p, x_destroy) = unsafe { to_sqlite_destroy(p) };
-
-    let rc = unsafe { set_client_data_raw(db, c_name.unwrap().as_ptr(), p, x_destroy) };
-
-    if rc != SQLITE_OK {
-        return Err(SqliteError::Sqlite {
-            code: rc,
-            message: "cant't set client data".into(),
-        });
+        Ok(())
     }
-
-    Ok(())
 }
 
 unsafe fn to_sqlite_destroy<T>(p: *mut T) -> (*mut c_void, XDestroy) {
@@ -89,18 +93,20 @@ mod tests {
         let mut db = ptr::null_mut();
         assert_eq!(unsafe { sqlite3_open(c":memory:".as_ptr(), &mut db) }, 0);
 
+        let db = Database::from_raw(db);
+
         let p = Box::into_raw(Box::new(Counter {
             value: 42,
             dropped: &DROPPED,
         }));
-        set_client_data(db, "demo", p).unwrap();
+        db.set_client_data("demo", p).unwrap();
 
-        let got = get_client_data::<Counter>(db, "demo").unwrap();
+        let got = db.get_client_data::<Counter>("demo").unwrap();
         assert_eq!(got.value, 42);
 
         assert!(!DROPPED.load(Ordering::SeqCst));
 
-        unsafe { sqlite3_close(db) };
+        unsafe { sqlite3_close(db.conn.as_ptr()) };
 
         assert!(DROPPED.load(Ordering::SeqCst));
     }
@@ -110,8 +116,10 @@ mod tests {
         let mut db = ptr::null_mut();
         assert_eq!(unsafe { sqlite3_open(c":memory:".as_ptr(), &mut db) }, 0);
 
-        assert!(get_client_data::<Counter>(db, "missing").is_err());
+        let db = Database::from_raw(db);
 
-        unsafe { sqlite3_close(db) };
+        assert!(db.get_client_data::<Counter>("missing").is_err());
+
+        unsafe { sqlite3_close(db.conn.as_ptr()) };
     }
 }

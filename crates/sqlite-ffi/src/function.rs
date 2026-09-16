@@ -8,7 +8,7 @@ use libsqlite3_sys::{
     sqlite3_errmsg, sqlite3_user_data, sqlite3_value,
 };
 
-use crate::error::SqliteError;
+use crate::{Context, Database, Value, error::SqliteError};
 
 pub enum TextRep {
     UTF16,
@@ -30,62 +30,63 @@ type XFunc = Option<
 
 type XDestroy = Option<unsafe extern "C" fn(*mut c_void)>;
 
-pub fn create_function_v2<F>(
-    db: *mut libsqlite3_sys::sqlite3,
-    name: &str,
-    arg_number: i32,
-    text_representation: TextRep,
-    func: F,
-) -> Result<(), SqliteError>
-where
-    F: Fn(*mut sqlite3_context, &[*mut sqlite3_value]) + Send + 'static,
-{
-    let c_name = CString::new(name);
-    let (p_app, x_func, x_destroy) = unsafe { to_sqlite_func(func) };
+pub trait ScalarFunction: Fn(Context, &[Value]) + Send + 'static {}
 
-    let rc = unsafe {
-        create_function_v2_raw(
-            db,
-            c_name.unwrap().as_ptr(),
-            arg_number,
-            text_representation.as_sqlite(),
-            p_app,
-            x_func,
-            None,
-            None,
-            x_destroy,
-        )
-    };
+impl<F> ScalarFunction for F where F: Fn(Context, &[Value]) + Send + 'static {}
 
-    if rc != SQLITE_OK {
-        let message = unsafe {
-            CStr::from_ptr(sqlite3_errmsg(db))
-                .to_string_lossy()
-                .into_owned()
+impl Database {
+    pub fn create_function_v2<F: ScalarFunction>(
+        &self,
+        name: &str,
+        arg_number: i32,
+        text_representation: TextRep,
+        func: F,
+    ) -> Result<(), SqliteError> {
+        let c_name = CString::new(name);
+        let (p_app, x_func, x_destroy) = unsafe { to_sqlite_func(func) };
+
+        let rc = unsafe {
+            create_function_v2_raw(
+                self.conn.as_ptr(),
+                c_name.unwrap().as_ptr(),
+                arg_number,
+                text_representation.as_sqlite(),
+                p_app,
+                x_func,
+                None,
+                None,
+                x_destroy,
+            )
         };
-        return Err(SqliteError::Sqlite { code: rc, message });
-    }
 
-    Ok(())
+        if rc != SQLITE_OK {
+            let message = unsafe {
+                CStr::from_ptr(sqlite3_errmsg(self.conn.as_ptr()))
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            return Err(SqliteError::Sqlite { code: rc, message });
+        }
+
+        Ok(())
+    }
 }
 
-unsafe fn to_sqlite_func<F>(func: F) -> (*mut c_void, XFunc, XDestroy)
-where
-    F: Fn(*mut sqlite3_context, &[*mut sqlite3_value]) + Send + 'static,
-{
+unsafe fn to_sqlite_func<F: ScalarFunction>(func: F) -> (*mut c_void, XFunc, XDestroy) {
     let boxed: *mut F = Box::into_raw(Box::new(func));
 
-    unsafe extern "C" fn transform<F>(
+    unsafe extern "C" fn transform<F: ScalarFunction>(
         ctx: *mut sqlite3_context,
         argc: c_int,
         argv: *mut *mut sqlite3_value,
-    ) where
-        F: Fn(*mut sqlite3_context, &[*mut sqlite3_value]) + Send + 'static,
-    {
+    ) {
         unsafe {
             let f = sqlite3_user_data(ctx).cast::<F>();
-            let args = slice::from_raw_parts(argv, argc as usize);
-            (*f)(ctx, args);
+
+            let raw_values = slice::from_raw_parts(argv, argc as usize);
+            let values: Vec<Value> = raw_values.iter().copied().map(Value::from_raw).collect();
+
+            (*f)(Context::from_raw(ctx), &values);
         }
     }
 
@@ -129,7 +130,7 @@ mod tests {
     use super::*;
     use libsqlite3_sys::{
         SQLITE_ROW, sqlite3_close, sqlite3_column_int, sqlite3_finalize, sqlite3_open,
-        sqlite3_prepare_v2, sqlite3_result_int, sqlite3_step,
+        sqlite3_prepare_v2, sqlite3_result_int64, sqlite3_step,
     };
     use std::ptr;
 
@@ -139,9 +140,11 @@ mod tests {
         let rc = unsafe { sqlite3_open(c":memory:".as_ptr(), &mut db) };
         assert_eq!(rc, SQLITE_OK);
 
-        create_function_v2(db, "add_one", 1, TextRep::UTF8, |ctx, args| {
-            let n = unsafe { libsqlite3_sys::sqlite3_value_int(args[0]) };
-            unsafe { sqlite3_result_int(ctx, n + 1) };
+        let db = Database::from_raw(db);
+
+        db.create_function_v2("add_one", 1, TextRep::UTF8, |context, args| {
+            let n = args[0].to_i64();
+            unsafe { sqlite3_result_int64(context.ctx.as_ptr(), n + 1) };
         })
         .unwrap();
 
@@ -149,13 +152,19 @@ mod tests {
         let sql = c"SELECT add_one(41)";
         unsafe {
             assert_eq!(
-                sqlite3_prepare_v2(db, sql.as_ptr(), -1, &mut stmt, ptr::null_mut()),
+                sqlite3_prepare_v2(
+                    db.conn.as_ptr(),
+                    sql.as_ptr(),
+                    -1,
+                    &mut stmt,
+                    ptr::null_mut()
+                ),
                 SQLITE_OK
             );
             assert_eq!(sqlite3_step(stmt), SQLITE_ROW);
             assert_eq!(sqlite3_column_int(stmt, 0), 42);
             sqlite3_finalize(stmt);
-            sqlite3_close(db);
+            sqlite3_close(db.conn.as_ptr());
         }
     }
 }

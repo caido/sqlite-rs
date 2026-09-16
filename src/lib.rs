@@ -17,7 +17,7 @@ pub use setup::{
     SetupTable, TableName,
 };
 
-use sqlite_ffi::{create_function_v2, init_extension, SqliteError};
+use sqlite_ffi::{Database, SqliteError};
 
 use libsqlite3_sys::{sqlite3, sqlite3_api_routines, SQLITE_OK};
 
@@ -28,16 +28,17 @@ pub unsafe extern "C" fn sqlite3_compress_init(
     _pz_err_msg: *mut *mut c_char,
     p_api: *mut sqlite3_api_routines,
 ) -> c_int {
-    if let Err(SqliteError::Sqlite { code, .. }) = init_extension(p_api) {
+    let database = Database::from_raw(db);
+
+    if let Err(SqliteError::Sqlite { code, .. }) = Database::init_extension(p_api) {
         return code;
     }
 
-    if let Err(SqliteError::Sqlite { code, .. }) = Connection::attach(db) {
+    if let Err(SqliteError::Sqlite { code, .. }) = Connection::attach(database) {
         return code;
     }
 
-    if let Err(SqliteError::Sqlite { code, .. }) = create_function_v2(
-        db,
+    if let Err(SqliteError::Sqlite { code, .. }) = database.create_function_v2(
         "compress",
         4,
         sqlite_ffi::TextRep::UTF8,
@@ -46,8 +47,7 @@ pub unsafe extern "C" fn sqlite3_compress_init(
         return code;
     }
 
-    if let Err(SqliteError::Sqlite { code, .. }) = create_function_v2(
-        db,
+    if let Err(SqliteError::Sqlite { code, .. }) = database.create_function_v2(
         "decompress",
         1,
         sqlite_ffi::TextRep::UTF8,
@@ -56,8 +56,7 @@ pub unsafe extern "C" fn sqlite3_compress_init(
         return code;
     }
 
-    if let Err(SqliteError::Sqlite { code, .. }) = create_function_v2(
-        db,
+    if let Err(SqliteError::Sqlite { code, .. }) = database.create_function_v2(
         "decompress",
         2,
         sqlite_ffi::TextRep::UTF8,

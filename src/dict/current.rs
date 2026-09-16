@@ -12,6 +12,7 @@ pub(crate) fn read_current_id(
     let table = quote_qualified(column.schema(), DICT_TABLE_NAME);
 
     let latest = conn
+        .db
         .query_i64(&format!(
             "SELECT COALESCE(MAX(id), 0) FROM {table} \
          WHERE table_name = {} AND column_name = {} AND is_current = 1",

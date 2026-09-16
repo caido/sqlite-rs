@@ -16,7 +16,7 @@ fn ensure_table_exists(conn: &Connection, config: &SetupConfig) -> Result<(), Se
     for schema in schemas {
         let schema = schema.quote();
 
-        conn.batch_execute(&format!(
+        conn.db.batch_execute(&format!(
             "
         CREATE TABLE IF NOT EXISTS {schema}.{DICT_TABLE_NAME} (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

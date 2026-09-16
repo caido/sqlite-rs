@@ -1,4 +1,4 @@
-use libsqlite3_sys::{sqlite3_context, sqlite3_value};
+use sqlite_ffi::{Context, Value};
 use zstd::bulk::Decompressor;
 
 use crate::{
@@ -27,14 +27,14 @@ pub(crate) fn decompress_raw(
     zstd::bulk::decompress(payload, uncompressed_len).map_err(CodecError::DecompressionFailed)
 }
 
-pub fn sqlite_decompress(context: *mut sqlite3_context, values: &[*mut sqlite3_value]) {
+pub fn sqlite_decompress(context: Context, values: &[Value]) {
     let blob = match values.first() {
-        Some(v) => sqlite_ffi::value_blob(v),
+        Some(v) => v.to_blob(),
         None => return, //return Err(CodecError::DecompressionRequiresOneArgument.into()),
     };
 
     let schema = match values.get(1) {
-        Some(v) => Some(sqlite_ffi::value_text(v).unwrap()),
+        Some(v) => Some(v.to_text().unwrap()),
         None => None,
     };
 
@@ -44,7 +44,7 @@ pub fn sqlite_decompress(context: *mut sqlite3_context, values: &[*mut sqlite3_v
     let len = header.uncompressed_len.get() as usize;
 
     let decompressed = if dict_id.get() != 0 {
-        let conn = Connection::from_context(context).unwrap();
+        let conn = Connection::from_context(&context).unwrap();
         let schema = schema.ok_or(CodecError::SchemaRequired).unwrap();
         let decoder = get_decoder_in_cache(&conn, schema, dict_id);
 
@@ -57,5 +57,5 @@ pub fn sqlite_decompress(context: *mut sqlite3_context, values: &[*mut sqlite3_v
         decompress_raw(payload, len).unwrap()
     };
 
-    sqlite_ffi::result_blob(context, &decompressed);
+    context.result_blob(&decompressed);
 }

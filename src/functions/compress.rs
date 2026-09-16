@@ -1,6 +1,5 @@
+use sqlite_ffi::{Context, Value};
 use zstd::bulk::Compressor;
-
-use libsqlite3_sys::{sqlite3_context, sqlite3_value};
 
 use crate::{
     cache::get_encoder_in_cache,
@@ -28,15 +27,15 @@ fn compress_raw(data: &[u8], level: Level) -> std::result::Result<Vec<u8>, Codec
     wrap(DictId::from(0), data.len(), compressed)
 }
 
-pub fn sqlite_compress(context: *mut sqlite3_context, values: &[*mut sqlite3_value]) {
-    let data = sqlite_ffi::value_blob(&values[0]);
-    let schema = sqlite_ffi::value_text(&values[1]).unwrap();
-    let table = sqlite_ffi::value_text(&values[2]).unwrap();
-    let column = sqlite_ffi::value_text(&values[3]).unwrap();
+pub fn sqlite_compress(context: Context, values: &[Value]) {
+    let data = values[0].to_blob();
+    let schema = values[1].to_text().unwrap();
+    let table = values[2].to_text().unwrap();
+    let column = values[3].to_text().unwrap();
 
     let key = ColumnKey::new(schema, table, column);
 
-    let conn = Connection::from_context(context).unwrap();
+    let conn = Connection::from_context(&context).unwrap();
 
     let id = conn
         .cache
@@ -55,5 +54,5 @@ pub fn sqlite_compress(context: *mut sqlite3_context, values: &[*mut sqlite3_val
         compress_raw(data, DEFAULT_LEVEL).unwrap()
     };
 
-    sqlite_ffi::result_blob(context, &compressed);
+    context.result_blob(&compressed);
 }
