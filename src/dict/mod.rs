@@ -12,10 +12,7 @@ pub use types::{ColumnKey, DictId};
 
 pub static DICT_TABLE_NAME: &str = "__compress_dicts";
 
-pub(crate) fn load_raw_dict(
-    dict_key: &DictKey,
-    conn: &mut Connection,
-) -> Result<Vec<u8>, DictError> {
+pub(crate) fn load_raw_dict(dict_key: &DictKey, conn: &Connection) -> Result<Vec<u8>, DictError> {
     let table = quote_qualified(&dict_key.schema, DICT_TABLE_NAME);
     let rows = conn
         .query_blobs(&format!(

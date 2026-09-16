@@ -9,15 +9,15 @@ pub const DEFAULT_RETRAIN_GROWTH: usize = 5000;
 
 use std::ffi::{c_char, c_int};
 
+pub use crate::conn::Connection;
 pub use dict::{errors::DictError, train_all, train_by_column, ColumnKey, DictId};
 pub use functions::{CodecError, Header, DEFAULT_LEVEL};
 pub use setup::{
-    setup, ColumnName, DictStore, SchemaName, SetupColumn, SetupConfig, SetupConnection,
-    SetupError, SetupTable, TableName,
+    setup, ColumnName, SchemaName, SetupColumn, SetupConfig, SetupConnection, SetupError,
+    SetupTable, TableName,
 };
-use sqlite_ffi::{create_function_v2, init_extension, SqliteError};
 
-use crate::conn::Connection;
+use sqlite_ffi::{create_function_v2, init_extension, SqliteError};
 
 use libsqlite3_sys::{sqlite3, sqlite3_api_routines, SQLITE_OK};
 
@@ -25,7 +25,7 @@ use libsqlite3_sys::{sqlite3, sqlite3_api_routines, SQLITE_OK};
 #[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn sqlite3_compress_init(
     db: *mut sqlite3,
-    pz_err_msg: *mut *mut c_char,
+    _pz_err_msg: *mut *mut c_char,
     p_api: *mut sqlite3_api_routines,
 ) -> c_int {
     if let Err(SqliteError::Sqlite { code, .. }) = init_extension(p_api) {

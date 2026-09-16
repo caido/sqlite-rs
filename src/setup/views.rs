@@ -1,7 +1,8 @@
 use crate::{
+    conn::Connection,
     setup::{
         config::{ColumnName, SchemaName, TableName},
-        SetupConfig, SetupConnection, SetupError, SqlIdent,
+        SetupConfig, SetupError, SqlIdent,
     },
     utils::{quote_identifier, quote_literal},
     SetupTable,
@@ -9,14 +10,11 @@ use crate::{
 
 /// Doing the check if the table exists in the database.
 /// Based on the schema and the table name.
-fn ensure_table_exists<C>(
-    conn: &mut C,
+fn ensure_table_exists(
+    conn: &Connection,
     schema: &SchemaName,
     table_name: &TableName,
-) -> Result<(), SetupError>
-where
-    C: SetupConnection,
-{
+) -> Result<(), SetupError> {
     let count = conn
         .query_i64(&format!(
             "SELECT COUNT(*) FROM {schema}.sqlite_master WHERE type = 'table' AND name = {table_name}"
@@ -36,15 +34,12 @@ where
 
 /// For each column in the table, check if the column exists in the database.
 /// Based on the table name and the schema.
-fn ensure_column_exist<C>(
-    conn: &mut C,
+fn ensure_column_exist(
+    conn: &Connection,
     table: &TableName,
     schema: &SchemaName,
     column: &ColumnName,
-) -> Result<(), SetupError>
-where
-    C: SetupConnection,
-{
+) -> Result<(), SetupError> {
     let col_exists = conn
         .query_i64(&format!(
             "SELECT COUNT(*) FROM pragma_table_info({table}, {schema}) WHERE name = {column}"
@@ -61,14 +56,11 @@ where
     Ok(())
 }
 
-fn table_column_names<C>(
-    conn: &mut C,
+fn table_column_names(
+    conn: &Connection,
     schema: &SchemaName,
     table: &TableName,
-) -> Result<Vec<String>, SetupError>
-where
-    C: SetupConnection,
-{
+) -> Result<Vec<String>, SetupError> {
     conn.query_strings(&format!(
         "SELECT name AS value FROM pragma_table_info({table}, {schema}) ORDER BY cid"
     ))
@@ -95,10 +87,7 @@ fn build_decoded_select_list(
         .join(", ")
 }
 
-fn ensure_table_view_exists<C>(conn: &mut C, table: &SetupTable) -> Result<(), SetupError>
-where
-    C: SetupConnection,
-{
+fn ensure_table_view_exists(conn: &Connection, table: &SetupTable) -> Result<(), SetupError> {
     let view_name = table.name.decoded_view_name();
     let schema_qualified = table.as_qualified_schema_name();
     let count = conn
@@ -122,8 +111,7 @@ where
         "CREATE VIEW IF NOT EXISTS {qualified_view} AS \
          SELECT {select_list} FROM {}",
         table.as_qualified_table_name()
-    ))
-    .map_err(SetupError::from_conn)?;
+    ));
 
     Ok(())
 }
@@ -133,19 +121,16 @@ where
 /// 2. Ensure the columns exist in the database.
 /// 3. Ensure the views exist in the database.
 ///    A view is created for each column that targets the table in [`SetupConfig`].
-pub(super) fn init_view<C>(conn: &mut C, config: &SetupConfig) -> Result<(), SetupError>
-where
-    C: SetupConnection,
-{
+pub(super) fn init_view(conn: &Connection, config: &SetupConfig) -> Result<(), SetupError> {
     for table in config.tables.iter() {
-        ensure_table_exists(conn, &table.schema, &table.name)?;
+        ensure_table_exists(&conn, &table.schema, &table.name)?;
 
         for column in &table.columns {
-            ensure_column_exist(conn, &table.name, &table.schema, &column.name)?;
+            ensure_column_exist(&conn, &table.name, &table.schema, &column.name)?;
         }
 
         if !table.columns.is_empty() {
-            ensure_table_view_exists(conn, table)?;
+            ensure_table_view_exists(&conn, table)?;
         }
     }
 

@@ -15,7 +15,7 @@ libsqlite3-sys = {workspace=true}
 crate-type=["cdylib","rlib"]
 
 [workspace]
-members = [".", "crates/sqlite-ffi", "crates/sqlite-ffi-demo"]
+members = [".", "crates/sqlite-ffi"]
 resolver = "2"
 
 [workspace.dependencies]

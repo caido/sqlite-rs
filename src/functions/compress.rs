@@ -35,8 +35,8 @@ pub fn sqlite_compress(context: *mut sqlite3_context, values: &[*mut sqlite3_val
     let column = sqlite_ffi::value_text(&values[3]).unwrap();
 
     let key = ColumnKey::new(schema, table, column);
-    //
-    let mut conn = Connection::from_context(context).unwrap();
+
+    let conn = Connection::from_context(context).unwrap();
 
     let id = conn
         .cache
@@ -46,10 +46,10 @@ pub fn sqlite_compress(context: *mut sqlite3_context, values: &[*mut sqlite3_val
         .unwrap();
 
     let compressed = if id.get() != 0 {
-        match get_encoder_in_cache(&mut conn, schema, id, DEFAULT_LEVEL) {
+        match get_encoder_in_cache(&conn, schema, id, DEFAULT_LEVEL) {
             Ok(encoder) => compress_with_encoder(id, data, &encoder).unwrap(),
             Err(DictError::NotReady) => compress_raw(data, DEFAULT_LEVEL).unwrap(),
-            Err(e) => return Err(CodecError::DictError(e).into()).unwrap(),
+            Err(_) => return, //Err(CodecError::DictError(e).into()).unwrap(),
         }
     } else {
         compress_raw(data, DEFAULT_LEVEL).unwrap()

@@ -194,21 +194,6 @@ impl SetupTable {
     }
 }
 
-pub trait DictStore {
-    type Error: std::error::Error + Send + Sync + 'static;
-    fn query_blobs(&mut self, sql: &str) -> Result<Vec<Vec<u8>>, Self::Error>;
-}
-
-pub trait SetupConnection: DictStore {
+pub trait SetupConnection {
     fn sqlite_handle(&self) -> *mut sqlite3;
-    fn query_strings(&mut self, sql: &str) -> Result<Vec<String>, Self::Error>;
-    fn batch_execute(&mut self, sql: &str) -> Result<(), Self::Error>;
-    fn query_i64(&mut self, sql: &str) -> Result<i64, Self::Error>;
-    fn execute_blob(&mut self, sql: &str, blob: &[u8]) -> Result<i64, Self::Error>;
-
-    /// For each blob in the table, execute the function.
-    /// Be able to stream the blobs to the function.
-    fn for_each_blob<F>(&mut self, sql: &str, f: F) -> Result<(), Self::Error>
-    where
-        F: FnMut(&[u8]) -> Result<(), Self::Error>;
 }

@@ -18,18 +18,18 @@ fn invalid_config(column: SetupColumn) -> SetupConfig {
 
 #[test]
 fn setup_skips_existing_view() {
-    let conn = common::open_connection();
+    let db = common::TestDb::open();
+    let conn = db.conn();
 
     let view_name = "__compress_decoded_requests_raw";
 
-    conn.execute_batch(&format!(
+    conn.batch_execute(&format!(
         r#"
         ATTACH DATABASE ':memory:' AS raw;
         CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
         CREATE VIEW raw."{view_name}" AS SELECT id FROM raw.requests_raw;
         "#
-    ))
-    .unwrap();
+    ));
 
     let config = SetupConfig {
         tables: vec![SetupTable {
@@ -45,29 +45,25 @@ fn setup_skips_existing_view() {
         compression_level: DEFAULT_LEVEL,
     };
 
-    let mut wrapper = common::RusqliteConn::new(&conn);
-    setup(&mut wrapper, &config).unwrap();
+    setup(&db, &config).unwrap();
 
-    let count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM raw.sqlite_master WHERE type = 'view'",
-            [],
-            |row| row.get(0),
-        )
+    let count = conn
+        .query_i64("SELECT COUNT(*) FROM raw.sqlite_master WHERE type = 'view'")
         .unwrap();
     assert_eq!(count, 1);
 }
 
 #[test]
 fn setup_creates_view() {
-    let conn = common::open_connection();
-    conn.execute_batch(
+    let db = common::TestDb::open();
+    let conn = db.conn();
+
+    conn.batch_execute(
         r#"
         ATTACH DATABASE ':memory:' AS raw;
         CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
         "#,
-    )
-    .unwrap();
+    );
 
     let config = SetupConfig {
         tables: vec![SetupTable {
@@ -83,16 +79,14 @@ fn setup_creates_view() {
         compression_level: DEFAULT_LEVEL,
     };
 
-    let mut wrapper = common::RusqliteConn::new(&conn);
-    setup(&mut wrapper, &config).unwrap();
+    setup(&db, &config).unwrap();
 
     let view_name = "__compress_decoded_requests_raw";
-    let count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM raw.sqlite_master WHERE type = 'view' AND name = ?1",
-            [view_name],
-            |row| row.get(0),
-        )
+    let count = conn
+        .query_i64(&format!(
+            "SELECT COUNT(*) FROM raw.sqlite_master WHERE type = 'view' AND name = '{}'",
+            view_name
+        ))
         .unwrap();
 
     assert_eq!(count, 1);
@@ -100,8 +94,10 @@ fn setup_creates_view() {
 
 #[test]
 fn setup_creates_one_view_per_table() {
-    let conn = common::open_connection();
-    conn.execute_batch(
+    let db = common::TestDb::open();
+    let conn = db.conn();
+
+    conn.batch_execute(
         r#"
         ATTACH DATABASE ':memory:' AS raw;
         CREATE TABLE raw.requests_raw (
@@ -110,8 +106,7 @@ fn setup_creates_one_view_per_table() {
             headers BLOB
         );
         "#,
-    )
-    .unwrap();
+    );
 
     let config = SetupConfig {
         tables: vec![SetupTable {
@@ -135,30 +130,29 @@ fn setup_creates_one_view_per_table() {
         compression_level: DEFAULT_LEVEL,
     };
 
-    let mut wrapper = common::RusqliteConn::new(&conn);
-    setup(&mut wrapper, &config).unwrap();
+    setup(&db, &config).unwrap();
 
-    let names: Vec<String> = conn
-        .prepare("SELECT name FROM raw.sqlite_master WHERE type = 'view' ORDER BY name")
-        .unwrap()
-        .query_map([], |row| row.get(0))
-        .unwrap()
-        .collect::<Result<_, _>>()
+    let names = conn
+        .query_strings(
+            "SELECT name FROM raw.sqlite_master \
+         WHERE type = 'view' ORDER BY name",
+        )
         .unwrap();
 
-    assert_eq!(names, vec!["__compress_decoded_requests_raw".to_string()]);
+    assert_eq!(names, vec!["__compress_decoded_requests_raw"]);
 }
 
 #[test]
 fn setup_rejects_missing_column() {
-    let conn = common::open_connection();
-    conn.execute_batch(
+    let db = common::TestDb::open();
+    let conn = db.conn();
+
+    conn.batch_execute(
         r#"
     ATTACH DATABASE ':memory:' AS raw;
     CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
     "#,
-    )
-    .unwrap();
+    );
 
     let config = SetupConfig {
         tables: vec![SetupTable {
@@ -174,8 +168,7 @@ fn setup_rejects_missing_column() {
         compression_level: DEFAULT_LEVEL,
     };
 
-    let mut wrapper = common::RusqliteConn::new(&conn);
-    let err = setup(&mut wrapper, &config).unwrap_err();
+    let err = setup(&db, &config).unwrap_err();
     assert!(matches!(
         err,
         SetupError::ColumnNotFound { table, column }
@@ -185,14 +178,15 @@ fn setup_rejects_missing_column() {
 
 #[test]
 fn setup_rejects_missing_table() {
-    let conn = common::open_connection();
-    conn.execute_batch(
+    let db = common::TestDb::open();
+    let conn = db.conn();
+
+    conn.batch_execute(
         r#"
     ATTACH DATABASE ':memory:' AS raw;
     CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
     "#,
-    )
-    .unwrap();
+    );
 
     let config = SetupConfig {
         tables: vec![SetupTable {
@@ -203,8 +197,7 @@ fn setup_rejects_missing_table() {
         compression_level: DEFAULT_LEVEL,
     };
 
-    let mut wrapper = common::RusqliteConn::new(&conn);
-    let err = setup(&mut wrapper, &config).unwrap_err();
+    let err = setup(&db, &config).unwrap_err();
     assert!(matches!(
         err,
         SetupError::TableNotFound(table)
@@ -214,14 +207,15 @@ fn setup_rejects_missing_table() {
 
 #[test]
 fn setup_rejects_zero_retrain_growth() {
-    let conn = common::open_connection();
-    conn.execute_batch(
+    let db = common::TestDb::open();
+    let conn = db.conn();
+
+    conn.batch_execute(
         r#"
         ATTACH DATABASE ':memory:' AS raw;
         CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
         "#,
-    )
-    .unwrap();
+    );
 
     let config = invalid_config(SetupColumn::new(
         "data",
@@ -229,8 +223,8 @@ fn setup_rejects_zero_retrain_growth() {
         DEFAULT_MIN_SAMPLES,
         DEFAULT_MAX_SAMPLES,
     ));
-    let mut wrapper = common::RusqliteConn::new(&conn);
-    let err = setup(&mut wrapper, &config).unwrap_err();
+
+    let err = setup(&db, &config).unwrap_err();
     assert!(matches!(
         err,
         SetupError::InvalidConfig("retrain growth must be greater than zero")
@@ -239,14 +233,15 @@ fn setup_rejects_zero_retrain_growth() {
 
 #[test]
 fn setup_rejects_zero_min_samples() {
-    let conn = common::open_connection();
-    conn.execute_batch(
+    let db = common::TestDb::open();
+    let conn = db.conn();
+
+    conn.batch_execute(
         r#"
         ATTACH DATABASE ':memory:' AS raw;
         CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
         "#,
-    )
-    .unwrap();
+    );
 
     let config = invalid_config(SetupColumn::new(
         "data",
@@ -254,8 +249,8 @@ fn setup_rejects_zero_min_samples() {
         0,
         DEFAULT_MAX_SAMPLES,
     ));
-    let mut wrapper = common::RusqliteConn::new(&conn);
-    let err = setup(&mut wrapper, &config).unwrap_err();
+
+    let err = setup(&db, &config).unwrap_err();
     assert!(matches!(
         err,
         SetupError::InvalidConfig("min samples must be greater than zero")
@@ -264,14 +259,15 @@ fn setup_rejects_zero_min_samples() {
 
 #[test]
 fn setup_rejects_zero_max_samples() {
-    let conn = common::open_connection();
-    conn.execute_batch(
+    let db = common::TestDb::open();
+    let conn = db.conn();
+
+    conn.batch_execute(
         r#"
         ATTACH DATABASE ':memory:' AS raw;
         CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
         "#,
-    )
-    .unwrap();
+    );
 
     let config = invalid_config(SetupColumn::new(
         "data",
@@ -279,8 +275,8 @@ fn setup_rejects_zero_max_samples() {
         DEFAULT_MIN_SAMPLES,
         0,
     ));
-    let mut wrapper = common::RusqliteConn::new(&conn);
-    let err = setup(&mut wrapper, &config).unwrap_err();
+
+    let err = setup(&db, &config).unwrap_err();
     assert!(matches!(
         err,
         SetupError::InvalidConfig("max samples must be greater than zero")
@@ -289,18 +285,19 @@ fn setup_rejects_zero_max_samples() {
 
 #[test]
 fn setup_rejects_max_samples_below_min() {
-    let conn = common::open_connection();
-    conn.execute_batch(
+    let db = common::TestDb::open();
+    let conn = db.conn();
+
+    conn.batch_execute(
         r#"
         ATTACH DATABASE ':memory:' AS raw;
         CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
         "#,
-    )
-    .unwrap();
+    );
 
     let config = invalid_config(SetupColumn::new("data", DEFAULT_RETRAIN_GROWTH, 2000, 1000));
-    let mut wrapper = common::RusqliteConn::new(&conn);
-    let err = setup(&mut wrapper, &config).unwrap_err();
+
+    let err = setup(&db, &config).unwrap_err();
     assert!(matches!(
         err,
         SetupError::InvalidConfig("max samples must be greater than or equal to min samples")

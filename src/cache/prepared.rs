@@ -8,11 +8,11 @@ use crate::{
     conn::Connection,
     dict::{load_raw_dict, read_current_id, DictKey},
     functions::Level,
-    ColumnKey, DictError, DictId, DictStore, SetupConnection,
+    ColumnKey, DictError, DictId,
 };
 
 pub(crate) fn get_encoder_in_cache(
-    conn: &mut Connection,
+    conn: &Connection,
     schema: &str,
     dict_id: DictId,
     level: Level,
@@ -37,24 +37,20 @@ pub(crate) fn get_encoder_in_cache(
     Ok(encoder)
 }
 
-pub(crate) fn get_decoder_in_cache<C>(
-    cache: &Mutex<ConnectionCache>,
-    conn: &mut C,
+pub(crate) fn get_decoder_in_cache(
+    conn: &Connection,
     schema: &str,
     dict_id: DictId,
-) -> Result<Arc<DecoderDictionary<'static>>, DictError>
-where
-    C: DictStore,
-{
+) -> Result<Arc<DecoderDictionary<'static>>, DictError> {
     let key = DictKey::new(schema, dict_id);
 
-    if let Some(dict) = cache.lock().decoders.peek(&key) {
+    if let Some(dict) = conn.cache.lock().decoders.peek(&key) {
         return Ok(dict);
     }
 
     let raw = load_raw_dict(&key, conn)?;
 
-    let mut cache = cache.lock();
+    let mut cache = conn.cache.lock();
 
     if let Some(dict) = cache.decoders.get(&key) {
         return Ok(dict);
@@ -66,27 +62,23 @@ where
     Ok(decoder)
 }
 
-pub(crate) fn warm_cache<C>(
-    cache: &Mutex<ConnectionCache>,
-    conn: &mut C,
+pub(crate) fn warm_cache(
+    conn: &Connection,
     column: &ColumnKey,
     level: Level,
-) -> Result<(), DictError>
-where
-    C: SetupConnection,
-{
+) -> Result<(), DictError> {
     let dict_id = match read_current_id(conn, column)? {
         Some(id) => id,
         None => {
-            cache.lock().clear_current_id(column);
+            conn.cache.lock().clear_current_id(column);
             return Ok(());
         }
     };
 
-    cache.lock().set_current_id(column.clone(), dict_id);
+    conn.cache.lock().set_current_id(column.clone(), dict_id);
 
-    get_encoder_in_cache(cache, conn, column.schema(), dict_id, level)?;
-    get_decoder_in_cache(cache, conn, column.schema(), dict_id)?;
+    get_encoder_in_cache(conn, column.schema(), dict_id, level)?;
+    get_decoder_in_cache(conn, column.schema(), dict_id)?;
 
     Ok(())
 }
@@ -119,14 +111,13 @@ mod tests {
     use std::sync::Arc;
 
     use parking_lot::Mutex;
-    use rusqlite::Connection;
     use zstd::{
         bulk::{Compressor, Decompressor},
         dict::{DecoderDictionary, EncoderDictionary},
     };
 
     use super::{get_decoder_in_cache, get_encoder_in_cache};
-    use crate::{cache::ConnectionCache, dict::DictId, setup::DictStore, DEFAULT_LEVEL};
+    use crate::{cache::ConnectionCache, dict::DictId, DEFAULT_LEVEL};
 
     const SCHEMA: &str = "main";
 

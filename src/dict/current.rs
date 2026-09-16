@@ -1,11 +1,12 @@
 use crate::{
+    conn::Connection,
     dict::DICT_TABLE_NAME,
     utils::{quote_literal, quote_qualified},
-    ColumnKey, DictError, DictId, SetupConnection,
+    ColumnKey, DictError, DictId,
 };
 
-pub(crate) fn read_current_id<C: SetupConnection>(
-    conn: &mut C,
+pub(crate) fn read_current_id(
+    conn: &Connection,
     column: &ColumnKey,
 ) -> Result<Option<DictId>, DictError> {
     let table = quote_qualified(column.schema(), DICT_TABLE_NAME);

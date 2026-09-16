@@ -3,8 +3,7 @@ use zstd::bulk::Decompressor;
 
 use crate::{
     cache::get_decoder_in_cache,
-    client_data,
-    conn::SqliteConn,
+    conn::Connection,
     functions::{
         errors::CodecError::{self},
         header::Header,
@@ -28,45 +27,35 @@ pub(crate) fn decompress_raw(
     zstd::bulk::decompress(payload, uncompressed_len).map_err(CodecError::DecompressionFailed)
 }
 
-pub fn sqlite_decompress(
-    context: *mut sqlite3_context,
-    values: &[*mut sqlite3_value],
-) -> Result<()> {
+pub fn sqlite_decompress(context: *mut sqlite3_context, values: &[*mut sqlite3_value]) {
     let blob = match values.first() {
-        Some(v) => api::value_blob(v),
-        None => return Err(CodecError::DecompressionRequiresOneArgument.into()),
+        Some(v) => sqlite_ffi::value_blob(v),
+        None => return, //return Err(CodecError::DecompressionRequiresOneArgument.into()),
     };
 
     let schema = match values.get(1) {
-        Some(v) => Some(api::value_text(v)?),
+        Some(v) => Some(sqlite_ffi::value_text(v).unwrap()),
         None => None,
     };
 
-    let (header, payload) = Header::parse(blob)?;
+    let (header, payload) = Header::parse(blob).unwrap();
 
     let dict_id = DictId::from(header.dict_id.get());
     let len = header.uncompressed_len.get() as usize;
 
     let decompressed = if dict_id.get() != 0 {
-        let schema = schema.ok_or(CodecError::SchemaRequired)?;
-        let mut conn = SqliteConn::from_context(context);
-        let db = api::context_db_handle(context);
-
-        let decoder = client_data::with_cache(db, |cache| {
-            get_decoder_in_cache(cache, &mut conn, schema, dict_id)
-        })
-        .ok_or(CodecError::MissingConnectionState)?;
+        let conn = Connection::from_context(context).unwrap();
+        let schema = schema.ok_or(CodecError::SchemaRequired).unwrap();
+        let decoder = get_decoder_in_cache(&conn, schema, dict_id);
 
         match decoder {
-            Ok(decoder) => decompress_with_decoder(payload, &decoder, len)
-                .map_err(CodecError::DecompressionFailed)?,
-            Err(DictError::NotReady) => decompress_raw(payload, len)?,
-            Err(e) => return Err(CodecError::DictError(e).into()),
+            Ok(decoder) => decompress_with_decoder(payload, &decoder, len).unwrap(),
+            Err(DictError::NotReady) => decompress_raw(payload, len).unwrap(),
+            Err(_) => return, //Err(CodecError::DictError(e).into()),
         }
     } else {
-        decompress_raw(payload, len)?
+        decompress_raw(payload, len).unwrap()
     };
 
-    api::result_blob(context, &decompressed);
-    Ok(())
+    sqlite_ffi::result_blob(context, &decompressed);
 }

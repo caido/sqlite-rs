@@ -1,6 +1,6 @@
 use crate::{
     cache::{get_decoder_in_cache, insert_into_caches},
-    client_data,
+    conn::Connection,
     dict::{
         types::{ColumnKey, DictId},
         DICT_TABLE_NAME,
@@ -15,7 +15,7 @@ const SAMPLE_BATCH_SIZE: usize = 64;
 const SAVEPOINT: &str = "sqlite_compress_persist_dict";
 
 pub fn train_all<C>(
-    conn: &mut C,
+    conn: &C,
     config: &SetupConfig,
     dict_capacity: usize,
 ) -> Result<Vec<DictId>, SetupError>
@@ -34,16 +34,13 @@ where
     Ok(dict_ids)
 }
 
-pub fn train_by_column<C>(
-    conn: &mut C,
+pub fn train_by_column<C: SetupConnection>(
+    conn: &C,
     table: &SetupTable,
     column: &SetupColumn,
     compression_level: Level,
     dict_capacity: usize,
-) -> Result<Option<DictId>, SetupError>
-where
-    C: SetupConnection,
-{
+) -> Result<Option<DictId>, SetupError> {
     validate_config(table.columns.len(), dict_capacity)?;
 
     let key = ColumnKey::new(
@@ -55,8 +52,10 @@ where
     let column_name = column.name.quote();
     let dict_store = quote_qualified(key.schema(), DICT_TABLE_NAME);
 
+    let conn = Connection::from_db(conn.sqlite_handle()).unwrap();
+
     let (enough, available) =
-        has_enough_samples(conn, &table_name, &column_name, column.min_samples)?;
+        has_enough_samples(&conn, &table_name, &column_name, column.min_samples)?;
 
     if !enough {
         return Ok(None);
@@ -74,7 +73,7 @@ where
     }
 
     let dictionary = build_dictionary(
-        conn,
+        &conn,
         key.schema(),
         &table_name,
         &column_name,
@@ -91,22 +90,16 @@ where
         available,
     )?;
 
-    client_data::with_cache(conn.sqlite_handle(), |cache| {
-        insert_into_caches(cache, &key, dict_id, &dictionary, compression_level)
-    })
-    .ok_or(SetupError::MissingConnectionState)?;
+    insert_into_caches(&conn.cache, &key, dict_id, &dictionary, compression_level);
 
     Ok(Some(dict_id))
 }
 
-pub(crate) fn decode_sample<C>(
-    conn: &mut C,
+pub(crate) fn decode_sample(
+    conn: &Connection,
     blob: &[u8],
     schema: &str,
-) -> Result<Vec<u8>, CodecError>
-where
-    C: SetupConnection,
-{
+) -> Result<Vec<u8>, CodecError> {
     let (header, payload) = match Header::parse(blob) {
         Ok(parsed) => parsed,
         Err(CodecError::MalformedHeader)
@@ -121,11 +114,7 @@ where
         return decompress_raw(payload, len);
     }
 
-    let decoder = client_data::with_cache(conn.sqlite_handle(), |cache| {
-        get_decoder_in_cache(cache, conn, schema, dict_id)
-    })
-    .ok_or(CodecError::MissingConnectionState)?
-    .map_err(CodecError::DictError)?;
+    let decoder = get_decoder_in_cache(&conn, schema, dict_id).unwrap();
 
     decompress_with_decoder(payload, &decoder, len).map_err(CodecError::DecompressionFailed)
 }
@@ -148,15 +137,12 @@ fn validate_config(column_size: usize, dict_capacity: usize) -> Result<(), Setup
     Ok(())
 }
 
-fn has_enough_samples<C>(
-    conn: &mut C,
+fn has_enough_samples(
+    conn: &Connection,
     table_name: &str,
     column_name: &str,
     min_samples: usize,
-) -> Result<(bool, i64), SetupError>
-where
-    C: SetupConnection,
-{
+) -> Result<(bool, i64), SetupError> {
     let count = conn
         .query_i64(&format!(
             "SELECT COUNT(*) FROM {table_name} \
@@ -172,17 +158,14 @@ where
 /// If the last row count is less than the retrain growth, the retrain is required.
 /// Last stored row_count for this column vs current sample count.
 /// No prior dict → retrain. Otherwise need `last + retrain_growth` samples.
-fn has_retrain_required<C>(
-    conn: &mut C,
+fn has_retrain_required(
+    conn: &Connection,
     dict_table: &str,
     table_name: &str,
     column_name: &str,
     available: i64,
     retrain_growth: usize,
-) -> Result<bool, SetupError>
-where
-    C: SetupConnection,
-{
+) -> Result<bool, SetupError> {
     let last = conn
         .query_i64(&format!(
             "SELECT COALESCE(\
@@ -205,17 +188,14 @@ where
 /// Build the dictionary from the samples.
 /// It is done by collecting the samples from the tables, and building the dictionary.
 /// Using stream approach to avoid loading all the samples into memory.
-fn build_dictionary<C>(
-    conn: &mut C,
+fn build_dictionary(
+    conn: &Connection,
     schema: &str,
     table_name: &str,
     column_name: &str,
     max_samples: usize,
     dict_capacity: usize,
-) -> Result<Vec<u8>, SetupError>
-where
-    C: SetupConnection,
-{
+) -> Result<Vec<u8>, SetupError> {
     let mut corpus = Vec::new();
     let mut sizes = Vec::new();
     let mut offset = 0usize;
@@ -230,12 +210,7 @@ where
          LIMIT {batch_limit} OFFSET {offset}"
         );
 
-        let mut batch = Vec::new();
-        conn.for_each_blob(&sql, |blob| {
-            batch.push(blob.to_vec());
-            Ok(())
-        })
-        .map_err(SetupError::from_conn)?;
+        let batch = conn.query_blobs(&sql).map_err(SetupError::from_conn)?;
 
         if batch.is_empty() {
             break;
@@ -274,17 +249,14 @@ where
 /// - dict: the dictionary
 /// - trained_at: the timestamp of the training
 /// - row_count: the number of rows in the dictionary
-fn persist_dictionary<C>(
-    conn: &mut C,
+fn persist_dictionary(
+    conn: &Connection,
     schema_name: &str,
     table_name: &str,
     column_name: &str,
     dictionary: &[u8],
     row_count: i64,
-) -> Result<DictId, SetupError>
-where
-    C: SetupConnection,
-{
+) -> Result<DictId, SetupError> {
     let demote_sql = format!(
         "UPDATE {schema_name} SET is_current = 0 \
      WHERE table_name = {} AND column_name = {} AND is_current = 1",
@@ -300,20 +272,17 @@ where
         quote_literal(column_name)
     );
 
-    conn.batch_execute(&format!("SAVEPOINT {SAVEPOINT};"))
-        .map_err(SetupError::from_conn)?;
+    conn.batch_execute(&format!("SAVEPOINT {SAVEPOINT};"));
 
     let result = (|| -> Result<i64, SetupError> {
-        conn.batch_execute(&demote_sql)
-            .map_err(SetupError::from_conn)?;
+        conn.batch_execute(&demote_sql);
         conn.execute_blob(&insert_sql, dictionary)
             .map_err(SetupError::from_conn)
     })();
 
     match result {
         Ok(id) => {
-            conn.batch_execute(&format!("RELEASE SAVEPOINT {SAVEPOINT};"))
-                .map_err(SetupError::from_conn)?;
+            conn.batch_execute(&format!("RELEASE SAVEPOINT {SAVEPOINT};"));
             u32::try_from(id)
                 .map(DictId::new)
                 .map_err(|_| SetupError::DictTrain("dictionary id overflow".to_string()))

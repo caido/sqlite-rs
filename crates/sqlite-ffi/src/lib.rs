@@ -4,7 +4,6 @@ mod error;
 #[cfg(feature = "loadable_extension")]
 mod extension;
 mod function;
-mod libversion;
 mod queries;
 mod result;
 mod values;
@@ -15,6 +14,8 @@ pub use error::SqliteError;
 #[cfg(feature = "loadable_extension")]
 pub use extension::init_extension;
 pub use function::{TextRep, create_function_v2};
-pub use queries::query_blobs;
+pub use queries::{
+    batch_execute, execute_blob, execute_blobs, query_blobs, query_i64, query_strings,
+};
 pub use result::result_blob;
 pub use values::{value_blob, value_text};

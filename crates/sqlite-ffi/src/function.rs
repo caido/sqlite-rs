@@ -82,13 +82,17 @@ where
     ) where
         F: Fn(*mut sqlite3_context, &[*mut sqlite3_value]) + Send + 'static,
     {
-        let f = sqlite3_user_data(ctx).cast::<F>();
-        let args = slice::from_raw_parts(argv, argc as usize);
-        (*f)(ctx, args);
+        unsafe {
+            let f = sqlite3_user_data(ctx).cast::<F>();
+            let args = slice::from_raw_parts(argv, argc as usize);
+            (*f)(ctx, args);
+        }
     }
 
     unsafe extern "C" fn destroy<F>(p: *mut c_void) {
-        drop(Box::from_raw(p.cast::<F>()));
+        unsafe {
+            drop(Box::from_raw(p.cast::<F>()));
+        }
     }
 
     (boxed.cast(), Some(transform::<F>), Some(destroy::<F>))

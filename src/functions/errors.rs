@@ -31,9 +31,3 @@ pub enum CodecError {
     #[error("connection state missing")]
     MissingConnectionState,
 }
-
-impl From<CodecError> for sqlite_loadable::Error {
-    fn from(err: CodecError) -> Self {
-        sqlite_loadable::Error::new_message(err.to_string())
-    }
-}

@@ -31,6 +31,26 @@ impl Connection {
         sqlite_ffi::query_blobs(self.db, sql)
     }
 
+    pub fn batch_execute(&self, sql: &str) -> i32 {
+        sqlite_ffi::batch_execute(self.db, sql)
+    }
+
+    pub fn execute_blob(&self, sql: &str, blob: &[u8]) -> Result<i64, SqliteError> {
+        sqlite_ffi::execute_blob(self.db, sql, blob)
+    }
+
+    pub fn execute_blobs(&self, sql: &str, blobs: &[&[u8]]) -> Result<(), SqliteError> {
+        sqlite_ffi::execute_blobs(self.db, sql, blobs)
+    }
+
+    pub fn query_strings(&self, sql: &str) -> Result<Vec<String>, SqliteError> {
+        sqlite_ffi::query_strings(self.db, sql)
+    }
+
+    pub fn query_i64(&self, sql: &str) -> Result<i64, SqliteError> {
+        sqlite_ffi::query_i64(self.db, sql)
+    }
+
     pub fn from_db(db: *mut sqlite3) -> Result<&'static Self, SqliteError> {
         sqlite_ffi::get_client_data(db, Self::NAME)
     }
@@ -40,14 +60,3 @@ impl Connection {
         Self::from_db(db)
     }
 }
-
-#[derive(Debug)]
-pub struct ConnError(String);
-
-impl std::fmt::Display for ConnError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl std::error::Error for ConnError {}
