@@ -16,9 +16,15 @@ type XFunc = Option<
 
 type XDestroy = Option<unsafe extern "C" fn(*mut c_void)>;
 
-pub trait ScalarFunction: Fn(Context, &[Value]) + Send + 'static {}
+pub trait ScalarFunction:
+    Fn(Context, &[Value]) -> Result<(), SqliteError> + Send + 'static
+{
+}
 
-impl<F> ScalarFunction for F where F: Fn(Context, &[Value]) + Send + 'static {}
+impl<F> ScalarFunction for F where
+    F: Fn(Context, &[Value]) -> Result<(), SqliteError> + Send + 'static
+{
+}
 
 impl Connection {
     pub fn create_function<F: ScalarFunction>(
@@ -72,7 +78,10 @@ unsafe fn to_sqlite_func<F: ScalarFunction>(func: F) -> (*mut c_void, XFunc, XDe
             let raw_values = slice::from_raw_parts(argv, argc as usize);
             let values: Vec<Value> = raw_values.iter().copied().map(Value::from_raw).collect();
 
-            (*f)(Context::from_raw(ctx), &values);
+            let context = Context::from_raw(ctx);
+            if let Err(e) = (*f)(context, &values) {
+                Context::from_raw(ctx).result_error(&e.to_string());
+            }
         }
     }
 
@@ -130,6 +139,7 @@ mod tests {
         db.create_function("add_one", 1, |context, args| {
             let n = args[0].to_i64();
             unsafe { sqlite3_result_int64(context.ctx.as_ptr(), n + 1) };
+            Ok(())
         })
         .unwrap();
 

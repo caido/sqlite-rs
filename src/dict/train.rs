@@ -122,7 +122,7 @@ pub(crate) fn decode_sample(
 
     let decoder = get_decoder_in_cache(state, schema, dict_id)?;
 
-    decompress_with_decoder(payload, &decoder, len).map_err(CodecError::DecompressionFailed)
+    decompress_with_decoder(payload, &decoder, len)
 }
 
 /// Validate the config is valid.

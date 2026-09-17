@@ -18,27 +18,15 @@ use sqlite_ffi_macros::sqlite_entrypoint;
 
 pub use crate::state::ExtensionState;
 
-#[sqlite_entrypoint(sqlite3_compress_init)]
-fn sqlite3_compress_init_entrypoint(connection: Connection) {
-    if let Err(SqliteError::Sqlite { code, .. }) = ExtensionState::attach(connection) {
-        panic!("Failed to attach connection: {}", code);
-    }
+#[sqlite_entrypoint]
+pub fn sqlite3_compress_init(connection: Connection) -> Result<(), SqliteError> {
+    ExtensionState::attach(&connection)?;
 
-    if let Err(SqliteError::Sqlite { code, .. }) =
-        connection.create_function("compress", 4, functions::sqlite_compress)
-    {
-        panic!("Failed to create compress function: {}", code);
-    }
+    connection.create_function("compress", 4, functions::sqlite_compress)?;
 
-    if let Err(SqliteError::Sqlite { code, .. }) =
-        connection.create_function("decompress", 1, functions::sqlite_decompress)
-    {
-        panic!("Failed to create decompress function: {}", code);
-    }
+    connection.create_function("decompress", 1, functions::sqlite_decompress)?;
 
-    if let Err(SqliteError::Sqlite { code, .. }) =
-        connection.create_function("decompress", 2, functions::sqlite_decompress)
-    {
-        panic!("Failed to create decompress function: {}", code);
-    }
+    connection.create_function("decompress", 2, functions::sqlite_decompress)?;
+
+    Ok(())
 }

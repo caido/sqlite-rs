@@ -120,8 +120,8 @@ mod tests {
 
     use super::{get_decoder_in_cache, get_encoder_in_cache};
     use crate::{
-        dict::DictId, sqlite3_compress_init, state, utils::quote_literal, ExtensionState,
-        SetupConnection, DEFAULT_LEVEL,
+        dict::DictId, sqlite3_compress_init, utils::quote_literal, ExtensionState, SetupConnection,
+        DEFAULT_LEVEL,
     };
 
     const SCHEMA: &str = "main";

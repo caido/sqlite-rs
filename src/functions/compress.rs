@@ -1,4 +1,4 @@
-use sqlite_ffi::{Context, Value};
+use sqlite_ffi::{Context, SqliteError, Value};
 use zstd::bulk::Compressor;
 
 use crate::{
@@ -27,15 +27,15 @@ fn compress_raw(data: &[u8], level: Level) -> std::result::Result<Vec<u8>, Codec
     wrap(DictId::from(0), data.len(), compressed)
 }
 
-pub fn sqlite_compress(context: Context, values: &[Value]) {
+pub fn sqlite_compress(context: Context, values: &[Value]) -> Result<(), SqliteError> {
     let data = values[0].to_blob();
-    let schema = values[1].to_text().expect("schema is not a text");
-    let table = values[2].to_text().expect("table is not a text");
-    let column = values[3].to_text().expect("column is not a text");
+    let schema = values[1].to_text()?;
+    let table = values[2].to_text()?;
+    let column = values[3].to_text()?;
 
     let key = ColumnKey::new(schema, table, column);
 
-    let state = ExtensionState::from_context(&context).expect("connection is not valid");
+    let state = ExtensionState::from_context(&context)?;
 
     let id = state
         .cache
@@ -45,18 +45,18 @@ pub fn sqlite_compress(context: Context, values: &[Value]) {
 
     let compressed = if id.get() != 0 {
         match get_encoder_in_cache(state, schema, id, DEFAULT_LEVEL) {
-            Ok(encoder) => compress_with_encoder(id, data, &encoder).expect("compression failed"),
-            Err(DictError::NotReady) => {
-                compress_raw(data, DEFAULT_LEVEL).expect("compression failed")
-            }
-            Err(e) => {
-                context.result_error(&e.to_string());
-                return;
-            }
+            Ok(encoder) => compress_with_encoder(id, data, &encoder)
+                .map_err(|e| SqliteError::Message(e.to_string()))?,
+            Err(DictError::NotReady) => compress_raw(data, DEFAULT_LEVEL)
+                .map_err(|e| SqliteError::Message(e.to_string()))?,
+
+            Err(e) => return Err(SqliteError::Message(e.to_string())),
         }
     } else {
-        compress_raw(data, DEFAULT_LEVEL).expect("compression failed")
+        compress_raw(data, DEFAULT_LEVEL).map_err(|e| SqliteError::Message(e.to_string()))?
     };
 
     context.result_blob(&compressed);
+
+    Ok(())
 }

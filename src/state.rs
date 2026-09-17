@@ -18,9 +18,9 @@ impl AsRef<Connection> for ExtensionState {
 impl ExtensionState {
     const NAME: &str = "sqlite-compress";
 
-    pub fn attach(connection: Connection) -> Result<(), SqliteError> {
+    pub fn attach(connection: &Connection) -> Result<(), SqliteError> {
         let state = Self {
-            connection,
+            connection: Connection::from_raw(connection.as_ptr()),
             cache: Mutex::new(DictCache::new()),
         };
 
@@ -32,7 +32,7 @@ impl ExtensionState {
         db.get_client_data(Self::NAME)
     }
 
-    pub fn from_context(context: &Context) -> Result<&'static Self, SqliteError> {
+    pub fn from_context(context: &Context) -> Result<&Self, SqliteError> {
         let db = Connection::from_context(context)?;
         db.get_client_data(Self::NAME)
     }

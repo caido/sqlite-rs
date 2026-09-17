@@ -10,7 +10,7 @@ impl Connection {
     /// # Panics
     ///
     /// Panics if the client data pointer cannot be cast to `&T`
-    pub fn get_client_data<T>(&self, name: &str) -> Result<&'static T, SqliteError> {
+    pub fn get_client_data<'a, T>(&self, name: &str) -> Result<&'a T, SqliteError> {
         let c_name = CString::new(name)?;
 
         let client = unsafe { get_client_data_raw(self.conn.as_ptr(), c_name.as_ptr()) };
