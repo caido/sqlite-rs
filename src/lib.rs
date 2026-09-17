@@ -25,19 +25,19 @@ fn sqlite3_compress_init_entrypoint(connection: Connection) {
     }
 
     if let Err(SqliteError::Sqlite { code, .. }) =
-        connection.create_function_v2("compress", 4, functions::sqlite_compress)
+        connection.create_function("compress", 4, functions::sqlite_compress)
     {
         panic!("Failed to create compress function: {}", code);
     }
 
     if let Err(SqliteError::Sqlite { code, .. }) =
-        connection.create_function_v2("decompress", 1, functions::sqlite_decompress)
+        connection.create_function("decompress", 1, functions::sqlite_decompress)
     {
         panic!("Failed to create decompress function: {}", code);
     }
 
     if let Err(SqliteError::Sqlite { code, .. }) =
-        connection.create_function_v2("decompress", 2, functions::sqlite_decompress)
+        connection.create_function("decompress", 2, functions::sqlite_decompress)
     {
         panic!("Failed to create decompress function: {}", code);
     }

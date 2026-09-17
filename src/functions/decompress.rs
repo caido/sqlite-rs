@@ -28,13 +28,7 @@ pub(crate) fn decompress_raw(
 }
 
 pub fn sqlite_decompress(context: Context, values: &[Value]) {
-    let blob = match values.first() {
-        Some(v) => v.to_blob(),
-        None => {
-            context.result_error("decompression requires one argument");
-            return;
-        }
-    };
+    let blob = values[0].to_blob();
 
     let schema = values
         .get(1)

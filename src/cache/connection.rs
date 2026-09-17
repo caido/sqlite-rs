@@ -4,13 +4,13 @@ use zstd::dict::{DecoderDictionary, EncoderDictionary};
 
 use crate::{cache::lru::DictLru, ColumnKey, DictId};
 
-pub(crate) struct ConnectionCache {
+pub(crate) struct DictCache {
     current_ids: HashMap<ColumnKey, DictId>,
     pub(crate) encoders: DictLru<EncoderDictionary<'static>>,
     pub(crate) decoders: DictLru<DecoderDictionary<'static>>,
 }
 
-impl ConnectionCache {
+impl DictCache {
     pub(crate) fn new() -> Self {
         Self {
             current_ids: HashMap::new(),

@@ -2,11 +2,11 @@ use libsqlite3_sys::sqlite3;
 use parking_lot::Mutex;
 use sqlite_ffi::{Connection, Context, SqliteError};
 
-use crate::cache::ConnectionCache;
+use crate::cache::DictCache;
 
 pub struct ExtensionState {
     pub(crate) connection: Connection,
-    pub(crate) cache: Mutex<ConnectionCache>,
+    pub(crate) cache: Mutex<DictCache>,
 }
 
 impl AsRef<Connection> for ExtensionState {
@@ -21,7 +21,7 @@ impl ExtensionState {
     pub fn attach(connection: Connection) -> Result<(), SqliteError> {
         let state = Self {
             connection,
-            cache: Mutex::new(ConnectionCache::new()),
+            cache: Mutex::new(DictCache::new()),
         };
 
         connection.set_client_data(Self::NAME, state)

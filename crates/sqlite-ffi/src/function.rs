@@ -21,7 +21,7 @@ pub trait ScalarFunction: Fn(Context, &[Value]) + Send + 'static {}
 impl<F> ScalarFunction for F where F: Fn(Context, &[Value]) + Send + 'static {}
 
 impl Connection {
-    pub fn create_function_v2<F: ScalarFunction>(
+    pub fn create_function<F: ScalarFunction>(
         &self,
         name: &str,
         arg_number: i32,
@@ -127,7 +127,7 @@ mod tests {
 
         let db = Connection::from_raw(db);
 
-        db.create_function_v2("add_one", 1, |context, args| {
+        db.create_function("add_one", 1, |context, args| {
             let n = args[0].to_i64();
             unsafe { sqlite3_result_int64(context.ctx.as_ptr(), n + 1) };
         })

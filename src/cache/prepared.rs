@@ -4,7 +4,7 @@ use parking_lot::Mutex;
 use zstd::dict::{DecoderDictionary, EncoderDictionary};
 
 use crate::{
-    cache::ConnectionCache,
+    cache::DictCache,
     dict::{load_raw_dict, read_current_id, DictKey},
     functions::Level,
     state::ExtensionState,
@@ -84,7 +84,7 @@ pub(crate) fn warm_cache(
 }
 
 pub(crate) fn insert_into_caches(
-    cache: &Mutex<ConnectionCache>,
+    cache: &Mutex<DictCache>,
     column: &ColumnKey,
     dict_id: DictId,
     dictionary: &[u8],
