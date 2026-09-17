@@ -19,11 +19,12 @@ fn invalid_config(column: SetupColumn) -> SetupConfig {
 #[test]
 fn setup_skips_existing_view() {
     let db = common::TestDb::open();
-    let conn = db.conn();
+    let state = db.state();
 
     let view_name = "__compress_decoded_requests_raw";
 
-    conn.database()
+    state
+        .as_ref()
         .batch_execute(&format!(
             r#"
         ATTACH DATABASE ':memory:' AS raw;
@@ -49,8 +50,8 @@ fn setup_skips_existing_view() {
 
     setup(&db, &config).unwrap();
 
-    let count = conn
-        .database()
+    let count = state
+        .as_ref()
         .query_i64("SELECT COUNT(*) FROM raw.sqlite_master WHERE type = 'view'")
         .unwrap();
     assert_eq!(count, 1);
@@ -59,9 +60,10 @@ fn setup_skips_existing_view() {
 #[test]
 fn setup_creates_view() {
     let db = common::TestDb::open();
-    let conn = db.conn();
+    let state = db.state();
 
-    conn.database()
+    state
+        .as_ref()
         .batch_execute(
             r#"
         ATTACH DATABASE ':memory:' AS raw;
@@ -87,8 +89,8 @@ fn setup_creates_view() {
     setup(&db, &config).unwrap();
 
     let view_name = "__compress_decoded_requests_raw";
-    let count = conn
-        .database()
+    let count = state
+        .as_ref()
         .query_i64(&format!(
             "SELECT COUNT(*) FROM raw.sqlite_master WHERE type = 'view' AND name = '{}'",
             view_name
@@ -101,9 +103,10 @@ fn setup_creates_view() {
 #[test]
 fn setup_creates_one_view_per_table() {
     let db = common::TestDb::open();
-    let conn = db.conn();
+    let state = db.state();
 
-    conn.database()
+    state
+        .as_ref()
         .batch_execute(
             r#"
         ATTACH DATABASE ':memory:' AS raw;
@@ -140,8 +143,8 @@ fn setup_creates_one_view_per_table() {
 
     setup(&db, &config).unwrap();
 
-    let names = conn
-        .database()
+    let names = state
+        .as_ref()
         .query_strings(
             "SELECT name FROM raw.sqlite_master \
          WHERE type = 'view' ORDER BY name",
@@ -154,9 +157,10 @@ fn setup_creates_one_view_per_table() {
 #[test]
 fn setup_rejects_missing_column() {
     let db = common::TestDb::open();
-    let conn = db.conn();
+    let state = db.state();
 
-    conn.database()
+    state
+        .as_ref()
         .batch_execute(
             r#"
     ATTACH DATABASE ':memory:' AS raw;
@@ -190,9 +194,10 @@ fn setup_rejects_missing_column() {
 #[test]
 fn setup_rejects_missing_table() {
     let db = common::TestDb::open();
-    let conn = db.conn();
+    let state = db.state();
 
-    conn.database()
+    state
+        .as_ref()
         .batch_execute(
             r#"
     ATTACH DATABASE ':memory:' AS raw;
@@ -221,9 +226,10 @@ fn setup_rejects_missing_table() {
 #[test]
 fn setup_rejects_zero_retrain_growth() {
     let db = common::TestDb::open();
-    let conn = db.conn();
+    let state = db.state();
 
-    conn.database()
+    state
+        .as_ref()
         .batch_execute(
             r#"
         ATTACH DATABASE ':memory:' AS raw;
@@ -249,9 +255,10 @@ fn setup_rejects_zero_retrain_growth() {
 #[test]
 fn setup_rejects_zero_min_samples() {
     let db = common::TestDb::open();
-    let conn = db.conn();
+    let state = db.state();
 
-    conn.database()
+    state
+        .as_ref()
         .batch_execute(
             r#"
         ATTACH DATABASE ':memory:' AS raw;
@@ -277,9 +284,10 @@ fn setup_rejects_zero_min_samples() {
 #[test]
 fn setup_rejects_zero_max_samples() {
     let db = common::TestDb::open();
-    let conn = db.conn();
+    let state = db.state();
 
-    conn.database()
+    state
+        .as_ref()
         .batch_execute(
             r#"
         ATTACH DATABASE ':memory:' AS raw;
@@ -305,9 +313,10 @@ fn setup_rejects_zero_max_samples() {
 #[test]
 fn setup_rejects_max_samples_below_min() {
     let db = common::TestDb::open();
-    let conn = db.conn();
+    let state = db.state();
 
-    conn.database()
+    state
+        .as_ref()
         .batch_execute(
             r#"
         ATTACH DATABASE ':memory:' AS raw;

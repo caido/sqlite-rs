@@ -4,25 +4,11 @@ use std::{
 };
 
 use libsqlite3_sys::{
-    SQLITE_OK, SQLITE_UTF8, SQLITE_UTF16BE, sqlite3_context, sqlite3_create_function_v2,
-    sqlite3_errmsg, sqlite3_user_data, sqlite3_value,
+    SQLITE_OK, SQLITE_UTF8, sqlite3_context, sqlite3_create_function_v2, sqlite3_errmsg,
+    sqlite3_user_data, sqlite3_value,
 };
 
-use crate::{Context, Database, Value, error::SqliteError};
-
-pub enum TextRep {
-    UTF16,
-    UTF8,
-}
-
-impl TextRep {
-    fn as_sqlite(&self) -> i32 {
-        match self {
-            Self::UTF16 => SQLITE_UTF16BE,
-            Self::UTF8 => SQLITE_UTF8,
-        }
-    }
-}
+use crate::{Connection, Context, Value, error::SqliteError};
 
 type XFunc = Option<
     unsafe extern "C" fn(arg1: *mut sqlite3_context, arg2: c_int, arg3: *mut *mut sqlite3_value),
@@ -34,12 +20,11 @@ pub trait ScalarFunction: Fn(Context, &[Value]) + Send + 'static {}
 
 impl<F> ScalarFunction for F where F: Fn(Context, &[Value]) + Send + 'static {}
 
-impl Database {
+impl Connection {
     pub fn create_function_v2<F: ScalarFunction>(
         &self,
         name: &str,
         arg_number: i32,
-        text_representation: TextRep,
         func: F,
     ) -> Result<(), SqliteError> {
         let c_name = CString::new(name)?;
@@ -50,7 +35,6 @@ impl Database {
                 self.conn.as_ptr(),
                 c_name.as_ptr(),
                 arg_number,
-                text_representation.as_sqlite(),
                 p_app,
                 x_func,
                 x_destroy,
@@ -105,7 +89,6 @@ unsafe fn create_function_v2_raw(
     db: *mut libsqlite3_sys::sqlite3,
     function_name: *const c_char,
     arg_number: c_int,
-    text_rep: c_int,
     p_app: *mut c_void,
     x_func: XFunc,
     x_destroy: Option<unsafe extern "C" fn(arg1: *mut ::core::ffi::c_void)>,
@@ -115,7 +98,7 @@ unsafe fn create_function_v2_raw(
             db,
             function_name,
             arg_number,
-            text_rep,
+            SQLITE_UTF8,
             p_app,
             x_func,
             None,
@@ -142,9 +125,9 @@ mod tests {
         let rc = unsafe { sqlite3_open(c":memory:".as_ptr(), &mut db) };
         assert_eq!(rc, SQLITE_OK);
 
-        let db = Database::from_raw(db);
+        let db = Connection::from_raw(db);
 
-        db.create_function_v2("add_one", 1, TextRep::UTF8, |context, args| {
+        db.create_function_v2("add_one", 1, |context, args| {
             let n = args[0].to_i64();
             unsafe { sqlite3_result_int64(context.ctx.as_ptr(), n + 1) };
         })

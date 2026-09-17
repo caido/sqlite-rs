@@ -9,7 +9,7 @@ proc-macro = true
 [dependencies]
 sqlite-ffi = { path = "../sqlite-ffi", default-features = false }
 libsqlite3-sys = { workspace = true }
-syn = { version = "2", features = ["full"] }
+syn = { version = "3", features = ["full"] }
 quote = "1"
 
 [features]

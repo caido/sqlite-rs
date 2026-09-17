@@ -6,16 +6,22 @@ mod train;
 mod types;
 
 pub(crate) use current::read_current_id;
-use sqlite_ffi::Database;
+use sqlite_ffi::Connection;
 pub use train::{train_all, train_by_column};
 pub(crate) use types::DictKey;
 pub use types::{ColumnKey, DictId};
 
 pub static DICT_TABLE_NAME: &str = "__compress_dicts";
 
-pub(crate) fn load_raw_dict(dict_key: &DictKey, db: &Database) -> Result<Vec<u8>, DictError> {
+pub(crate) fn load_raw_dict<C: AsRef<Connection>>(
+    dict_key: &DictKey,
+    connection: C,
+) -> Result<Vec<u8>, DictError> {
     let table = quote_qualified(&dict_key.schema, DICT_TABLE_NAME);
-    let rows = db
+
+    let connection = connection.as_ref();
+
+    let rows = connection
         .query_blobs(&format!(
             "SELECT dict AS value FROM {table} WHERE id = {}",
             dict_key.id.get()

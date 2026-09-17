@@ -1,23 +1,25 @@
-use sqlite_ffi::Database;
+use sqlite_ffi::Connection;
 
 use crate::{
-    conn::Connection,
     setup::{
         config::{ColumnName, SchemaName, TableName},
         SetupConfig, SetupError, SqlIdent,
     },
+    state::ExtensionState,
     utils::{quote_identifier, quote_literal},
     SetupTable,
 };
 
 /// Doing the check if the table exists in the database.
 /// Based on the schema and the table name.
-fn ensure_table_exists(
-    db: &Database,
+fn ensure_table_exists<C: AsRef<Connection>>(
+    connection: C,
     schema: &SchemaName,
     table_name: &TableName,
 ) -> Result<(), SetupError> {
-    let count = db
+    let connection = connection.as_ref();
+
+    let count = connection
         .query_i64(&format!(
             "SELECT COUNT(*) FROM {schema}.sqlite_master WHERE type = 'table' AND name = {table_name}"
         ))
@@ -36,13 +38,15 @@ fn ensure_table_exists(
 
 /// For each column in the table, check if the column exists in the database.
 /// Based on the table name and the schema.
-fn ensure_column_exist(
-    db: &Database,
+fn ensure_column_exist<C: AsRef<Connection>>(
+    connection: &C,
     table: &TableName,
     schema: &SchemaName,
     column: &ColumnName,
 ) -> Result<(), SetupError> {
-    let col_exists = db
+    let connection = connection.as_ref();
+
+    let col_exists = connection
         .query_i64(&format!(
             "SELECT COUNT(*) FROM pragma_table_info({table}, {schema}) WHERE name = {column}"
         ))
@@ -59,7 +63,7 @@ fn ensure_column_exist(
 }
 
 fn table_column_names(
-    db: &Database,
+    db: &Connection,
     schema: &SchemaName,
     table: &TableName,
 ) -> Result<Vec<String>, SetupError> {
@@ -89,10 +93,14 @@ fn build_decoded_select_list(
         .join(", ")
 }
 
-fn ensure_table_view_exists(db: &Database, table: &SetupTable) -> Result<(), SetupError> {
+fn ensure_table_view_exists<C: AsRef<Connection>>(
+    connection: &C,
+    table: &SetupTable,
+) -> Result<(), SetupError> {
+    let connection = connection.as_ref();
     let view_name = table.name.decoded_view_name();
     let schema_qualified = table.as_qualified_schema_name();
-    let count = db
+    let count = connection
         .query_i64(&format!(
             "SELECT COUNT(*) FROM {schema_qualified}.sqlite_master \
              WHERE type = 'view' AND name = {}",
@@ -104,17 +112,18 @@ fn ensure_table_view_exists(db: &Database, table: &SetupTable) -> Result<(), Set
         return Ok(());
     }
 
-    let table_columns = table_column_names(db, &table.schema, &table.name)?;
+    let table_columns = table_column_names(connection, &table.schema, &table.name)?;
     let compressed = table.compressed_column_names();
     let select_list = build_decoded_select_list(&table_columns, &compressed, table.schema.as_str());
     let qualified_view = table.as_qualified_decoded_view_name();
 
-    db.batch_execute(&format!(
-        "CREATE VIEW IF NOT EXISTS {qualified_view} AS \
+    connection
+        .batch_execute(&format!(
+            "CREATE VIEW IF NOT EXISTS {qualified_view} AS \
          SELECT {select_list} FROM {}",
-        table.as_qualified_table_name()
-    ))
-    .map_err(SetupError::from_conn)?;
+            table.as_qualified_table_name()
+        ))
+        .map_err(SetupError::from_conn)?;
 
     Ok(())
 }
@@ -124,16 +133,16 @@ fn ensure_table_view_exists(db: &Database, table: &SetupTable) -> Result<(), Set
 /// 2. Ensure the columns exist in the database.
 /// 3. Ensure the views exist in the database.
 ///    A view is created for each column that targets the table in [`SetupConfig`].
-pub(super) fn init_view(conn: &Connection, config: &SetupConfig) -> Result<(), SetupError> {
+pub(super) fn init_view(state: &ExtensionState, config: &SetupConfig) -> Result<(), SetupError> {
     for table in config.tables.iter() {
-        ensure_table_exists(conn.database(), &table.schema, &table.name)?;
+        ensure_table_exists(state, &table.schema, &table.name)?;
 
         for column in &table.columns {
-            ensure_column_exist(conn.database(), &table.name, &table.schema, &column.name)?;
+            ensure_column_exist(state, &table.name, &table.schema, &column.name)?;
         }
 
         if !table.columns.is_empty() {
-            ensure_table_view_exists(conn.database(), table)?;
+            ensure_table_view_exists(state, table)?;
         }
     }
 

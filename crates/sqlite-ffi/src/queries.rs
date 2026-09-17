@@ -7,9 +7,9 @@ use libsqlite3_sys::{
     sqlite3_value_blob, sqlite3_value_bytes,
 };
 
-use crate::{Database, SqliteError};
+use crate::{Connection, SqliteError};
 
-impl Database {
+impl Connection {
     pub fn query_strings(&self, sql: &str) -> Result<Vec<String>, SqliteError> {
         with_stmt(self.conn.as_ptr(), sql, |stmt| unsafe {
             let mut out = Vec::new();

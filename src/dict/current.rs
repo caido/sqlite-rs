@@ -1,4 +1,4 @@
-use sqlite_ffi::Database;
+use sqlite_ffi::Connection;
 
 use crate::{
     dict::DICT_TABLE_NAME,
@@ -6,13 +6,15 @@ use crate::{
     ColumnKey, DictError, DictId,
 };
 
-pub(crate) fn read_current_id(
-    db: &Database,
+pub(crate) fn read_current_id<C: AsRef<Connection>>(
+    connection: C,
     column: &ColumnKey,
 ) -> Result<Option<DictId>, DictError> {
     let table = quote_qualified(column.schema(), DICT_TABLE_NAME);
 
-    let latest = db
+    let connection = connection.as_ref();
+
+    let latest = connection
         .query_i64(&format!(
             "SELECT COALESCE(MAX(id), 0) FROM {table} \
          WHERE table_name = {} AND column_name = {} AND is_current = 1",

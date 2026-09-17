@@ -8,9 +8,9 @@ use common::{DEFAULT_MAX_SAMPLES, DEFAULT_MIN_SAMPLES};
 #[test]
 fn setup_table_does_not_exist() {
     let db = common::TestDb::open();
-    let conn = db.conn();
+    let state = db.state();
 
-    let res = conn.database().batch_execute(
+    let res = state.as_ref().batch_execute(
         r#"
             ATTACH DATABASE ':memory:' AS raw;
             CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
@@ -35,8 +35,8 @@ fn setup_table_does_not_exist() {
 
     setup(&db, &config).unwrap();
 
-    let count = conn
-        .database()
+    let count = state
+        .as_ref()
         .query_i64(
             "SELECT COUNT(*) FROM raw.sqlite_master \
              WHERE type='table' AND name='__compress_dicts'",
@@ -48,9 +48,10 @@ fn setup_table_does_not_exist() {
 #[test]
 fn setup_table_already_exists() {
     let db = common::TestDb::open();
-    let conn = db.conn();
+    let state = db.state();
 
-    conn.database()
+    state
+        .as_ref()
         .batch_execute(
             r#"
             ATTACH DATABASE ':memory:' AS raw;
@@ -84,8 +85,8 @@ fn setup_table_already_exists() {
 
     setup(&db, &config).unwrap();
 
-    let count: i64 = conn
-        .database()
+    let count: i64 = state
+        .as_ref()
         .query_i64(
             "SELECT COUNT(*) FROM raw.sqlite_master WHERE type='table' AND name='__compress_dicts'",
         )
@@ -96,9 +97,10 @@ fn setup_table_already_exists() {
 #[test]
 fn setup_creates_dict_table_per_schema() {
     let db = common::TestDb::open();
-    let conn = db.conn();
+    let state = db.state();
 
-    conn.database()
+    state
+        .as_ref()
         .batch_execute(
             r#"
         ATTACH DATABASE ':memory:' AS raw;
@@ -137,8 +139,8 @@ fn setup_creates_dict_table_per_schema() {
     setup(&db, &config).unwrap();
 
     for schema in ["raw", "archive"] {
-        let count: i64 = conn
-            .database()
+        let count: i64 = state
+            .as_ref()
             .query_i64(&format!(
                 "SELECT COUNT(*) FROM {schema}.sqlite_master \
                      WHERE type = 'table' AND name = '__compress_dicts'"

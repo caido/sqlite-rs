@@ -3,9 +3,9 @@ use zstd::bulk::Compressor;
 
 use crate::{
     cache::get_encoder_in_cache,
-    conn::Connection,
     dict::{errors::DictError, ColumnKey, DictId},
     functions::{errors::CodecError, header::wrap, types::Level, DEFAULT_LEVEL},
+    state::ExtensionState,
 };
 
 fn compress_with_encoder(
@@ -35,16 +35,16 @@ pub fn sqlite_compress(context: Context, values: &[Value]) {
 
     let key = ColumnKey::new(schema, table, column);
 
-    let conn = Connection::from_context(&context).expect("connection is not valid");
+    let state = ExtensionState::from_context(&context).expect("connection is not valid");
 
-    let id = conn
+    let id = state
         .cache
         .lock()
         .current_id(&key)
         .unwrap_or(DictId::from(0));
 
     let compressed = if id.get() != 0 {
-        match get_encoder_in_cache(conn, schema, id, DEFAULT_LEVEL) {
+        match get_encoder_in_cache(state, schema, id, DEFAULT_LEVEL) {
             Ok(encoder) => compress_with_encoder(id, data, &encoder).expect("compression failed"),
             Err(DictError::NotReady) => {
                 compress_raw(data, DEFAULT_LEVEL).expect("compression failed")

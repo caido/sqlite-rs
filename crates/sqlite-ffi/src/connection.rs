@@ -5,13 +5,13 @@ use libsqlite3_sys::{sqlite3, sqlite3_context, sqlite3_context_db_handle};
 use crate::{Context, SqliteError};
 
 #[derive(Clone, Copy)]
-pub struct Database {
+pub struct Connection {
     pub(crate) conn: NonNull<sqlite3>,
 }
 
-impl Database {
+impl Connection {
     pub fn from_raw(db: *mut sqlite3) -> Self {
-        Database {
+        Connection {
             conn: NonNull::new(db).expect("database pointer is not valid"),
         }
     }

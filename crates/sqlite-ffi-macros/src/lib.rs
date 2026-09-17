@@ -23,11 +23,11 @@ pub fn sqlite_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
             api: *mut ::libsqlite3_sys::sqlite3_api_routines,
         ) -> ::core::ffi::c_int {
 
-            let database = ::sqlite_ffi::Database::from_raw(db);
+            let database = ::sqlite_ffi::Connection::from_raw(db);
 
             #[cfg(feature = "loadable_extension")]
             if let Err(::sqlite_ffi::SqliteError::Sqlite { code, .. }) =
-                ::sqlite_ffi::Database::init_extension(api)
+                ::sqlite_ffi::Connection::init_extension(api)
             {
                 return code;
             }

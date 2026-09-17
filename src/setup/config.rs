@@ -196,5 +196,8 @@ impl SetupTable {
 }
 
 pub trait SetupConnection {
-    fn sqlite_handle(&self) -> *mut sqlite3;
+    /// # Safety
+    ///
+    /// This method must be called with a valid SQLite connection handle.
+    unsafe fn sqlite_handle(&self) -> *mut sqlite3;
 }

@@ -2,11 +2,14 @@ use std::ffi::{CString, c_char, c_void};
 
 use libsqlite3_sys::{SQLITE_OK, sqlite3, sqlite3_get_clientdata, sqlite3_set_clientdata};
 
-use crate::{Database, error::SqliteError};
+use crate::{Connection, error::SqliteError};
 
 type XDestroy = Option<unsafe extern "C" fn(*mut c_void)>;
 
-impl Database {
+impl Connection {
+    /// # Panics
+    ///
+    /// Panics if the client data pointer cannot be cast to `&T`
     pub fn get_client_data<T>(&self, name: &str) -> Result<&'static T, SqliteError> {
         let c_name = CString::new(name)?;
 
@@ -26,10 +29,10 @@ impl Database {
         Ok(client.expect("can't cast"))
     }
 
-    pub fn set_client_data<T>(&self, name: &str, value: Box<T>) -> Result<(), SqliteError> {
+    pub fn set_client_data<T>(&self, name: &str, value: T) -> Result<(), SqliteError> {
         let c_name = CString::new(name)?;
 
-        let pointer = Box::into_raw(value);
+        let pointer = Box::into_raw(Box::new(value));
 
         let (p, x_destroy) = unsafe { to_sqlite_destroy(pointer) };
 
@@ -101,7 +104,7 @@ mod tests {
         let mut db = ptr::null_mut();
         assert_eq!(unsafe { sqlite3_open(c":memory:".as_ptr(), &mut db) }, 0);
 
-        let db = Database::from_raw(db);
+        let db = Connection::from_raw(db);
 
         let p = Box::into_raw(Box::new(Counter {
             value: 42,
@@ -124,7 +127,7 @@ mod tests {
         let mut db = ptr::null_mut();
         assert_eq!(unsafe { sqlite3_open(c":memory:".as_ptr(), &mut db) }, 0);
 
-        let db = Database::from_raw(db);
+        let db = Connection::from_raw(db);
 
         assert!(db.get_client_data::<Counter>("missing").is_err());
 

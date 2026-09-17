@@ -3,11 +3,11 @@ use zstd::bulk::Decompressor;
 
 use crate::{
     cache::get_decoder_in_cache,
-    conn::Connection,
     functions::{
         errors::CodecError::{self},
         header::Header,
     },
+    state::ExtensionState,
     DictError, DictId,
 };
 
@@ -46,11 +46,12 @@ pub fn sqlite_decompress(context: Context, values: &[Value]) {
     let len = header.uncompressed_len.get() as usize;
 
     let decompressed = if dict_id.get() != 0 {
-        let conn = Connection::from_context(&context).expect("missing connection state");
+        let state = ExtensionState::from_context(&context).expect("missing connection state");
+
         let schema = schema
             .ok_or(CodecError::SchemaRequired)
             .expect("schema is required");
-        let decoder = get_decoder_in_cache(conn, schema, dict_id);
+        let decoder = get_decoder_in_cache(state, schema, dict_id);
 
         match decoder {
             Ok(decoder) => {

@@ -1,12 +1,14 @@
+use sqlite_ffi::Connection;
+
 use crate::{
     cache::{get_decoder_in_cache, insert_into_caches},
-    conn::Connection,
     dict::{
         types::{ColumnKey, DictId},
         DICT_TABLE_NAME,
     },
     functions::{decompress_raw, decompress_with_decoder, CodecError, Level},
     setup::{SetupConfig, SetupConnection, SetupError, SqlIdent},
+    state::ExtensionState,
     utils::{quote_literal, quote_qualified},
     Header, SetupColumn, SetupTable,
 };
@@ -15,14 +17,20 @@ const SAMPLE_BATCH_SIZE: usize = 64;
 const SAVEPOINT: &str = "sqlite_compress_persist_dict";
 
 pub fn train_all<C: SetupConnection>(
-    conn: &C,
+    connection: &C,
     config: &SetupConfig,
     dict_capacity: usize,
 ) -> Result<Vec<DictId>, SetupError> {
     let mut dict_ids = Vec::new();
 
     for (table, column) in config.iter_columns() {
-        match train_by_column(conn, table, column, config.compression_level, dict_capacity)? {
+        match train_by_column(
+            connection,
+            table,
+            column,
+            config.compression_level,
+            dict_capacity,
+        )? {
             Some(dict_id) => dict_ids.push(dict_id),
             None => continue,
         }
@@ -32,7 +40,7 @@ pub fn train_all<C: SetupConnection>(
 }
 
 pub fn train_by_column<C: SetupConnection>(
-    conn: &C,
+    connection: &C,
     table: &SetupTable,
     column: &SetupColumn,
     compression_level: Level,
@@ -50,17 +58,17 @@ pub fn train_by_column<C: SetupConnection>(
     let column_name = column.name.quote();
     let dict_store = quote_qualified(key.schema(), DICT_TABLE_NAME);
 
-    let conn = Connection::from_db(conn.sqlite_handle())?;
+    let state = ExtensionState::from_db(unsafe { connection.sqlite_handle() })?;
 
     let (enough, available) =
-        has_enough_samples(conn, &table_name, &column_name, column.min_samples)?;
+        has_enough_samples(state, &table_name, &column_name, column.min_samples)?;
 
     if !enough {
         return Ok(None);
     }
 
     if !has_retrain_required(
-        conn,
+        state,
         &dict_store,
         key.table(),
         key.column(),
@@ -71,7 +79,7 @@ pub fn train_by_column<C: SetupConnection>(
     }
 
     let dictionary = build_dictionary(
-        conn,
+        state,
         key.schema(),
         &table_name,
         &column_name,
@@ -80,7 +88,7 @@ pub fn train_by_column<C: SetupConnection>(
     )?;
 
     let dict_id = persist_dictionary(
-        conn,
+        state,
         &dict_store,
         key.table(),
         key.column(),
@@ -88,13 +96,13 @@ pub fn train_by_column<C: SetupConnection>(
         available,
     )?;
 
-    insert_into_caches(&conn.cache, &key, dict_id, &dictionary, compression_level);
+    insert_into_caches(&state.cache, &key, dict_id, &dictionary, compression_level);
 
     Ok(Some(dict_id))
 }
 
 pub(crate) fn decode_sample(
-    conn: &Connection,
+    state: &ExtensionState,
     blob: &[u8],
     schema: &str,
 ) -> Result<Vec<u8>, CodecError> {
@@ -112,7 +120,7 @@ pub(crate) fn decode_sample(
         return decompress_raw(payload, len);
     }
 
-    let decoder = get_decoder_in_cache(conn, schema, dict_id)?;
+    let decoder = get_decoder_in_cache(state, schema, dict_id)?;
 
     decompress_with_decoder(payload, &decoder, len).map_err(CodecError::DecompressionFailed)
 }
@@ -135,14 +143,15 @@ fn validate_config(column_size: usize, dict_capacity: usize) -> Result<(), Setup
     Ok(())
 }
 
-fn has_enough_samples(
-    conn: &Connection,
+fn has_enough_samples<C: AsRef<Connection>>(
+    connection: &C,
     table_name: &str,
     column_name: &str,
     min_samples: usize,
 ) -> Result<(bool, i64), SetupError> {
-    let count = conn
-        .db
+    let connection = connection.as_ref();
+
+    let count = connection
         .query_i64(&format!(
             "SELECT COUNT(*) FROM {table_name} \
          WHERE {column_name} IS NOT NULL AND length({column_name}) > 0"
@@ -157,16 +166,17 @@ fn has_enough_samples(
 /// If the last row count is less than the retrain growth, the retrain is required.
 /// Last stored row_count for this column vs current sample count.
 /// No prior dict → retrain. Otherwise need `last + retrain_growth` samples.
-fn has_retrain_required(
-    conn: &Connection,
+fn has_retrain_required<C: AsRef<Connection>>(
+    connection: &C,
     dict_table: &str,
     table_name: &str,
     column_name: &str,
     available: i64,
     retrain_growth: usize,
 ) -> Result<bool, SetupError> {
-    let last = conn
-        .db
+    let connection = connection.as_ref();
+
+    let last = connection
         .query_i64(&format!(
             "SELECT COALESCE(\
                 (SELECT row_count FROM {dict_table} \
@@ -189,7 +199,7 @@ fn has_retrain_required(
 /// It is done by collecting the samples from the tables, and building the dictionary.
 /// Using stream approach to avoid loading all the samples into memory.
 fn build_dictionary(
-    conn: &Connection,
+    state: &ExtensionState,
     schema: &str,
     table_name: &str,
     column_name: &str,
@@ -210,7 +220,10 @@ fn build_dictionary(
          LIMIT {batch_limit} OFFSET {offset}"
         );
 
-        let batch = conn.db.query_blobs(&sql).map_err(SetupError::from_conn)?;
+        let batch = state
+            .connection
+            .query_blobs(&sql)
+            .map_err(SetupError::from_conn)?;
 
         if batch.is_empty() {
             break;
@@ -218,7 +231,7 @@ fn build_dictionary(
 
         let batch_len = batch.len();
         for blob in &batch {
-            let sample = decode_sample(conn, blob, schema).map_err(|e| {
+            let sample = decode_sample(state, blob, schema).map_err(|e| {
                 SetupError::DictTrain(format!("failed to decode training sample: {e}"))
             })?;
             corpus.extend_from_slice(&sample);
@@ -250,7 +263,7 @@ fn build_dictionary(
 /// - trained_at: the timestamp of the training
 /// - row_count: the number of rows in the dictionary
 fn persist_dictionary(
-    conn: &Connection,
+    state: &ExtensionState,
     schema_name: &str,
     table_name: &str,
     column_name: &str,
@@ -272,23 +285,27 @@ fn persist_dictionary(
         quote_literal(column_name)
     );
 
-    conn.db
+    state
+        .connection
         .batch_execute(&format!("SAVEPOINT {SAVEPOINT};"))
         .map_err(SetupError::from_conn)?;
 
     let result = (|| -> Result<i64, SetupError> {
-        conn.db
+        state
+            .connection
             .batch_execute(&demote_sql)
             .map_err(SetupError::from_conn)?;
 
-        conn.db
+        state
+            .connection
             .execute_blob(&insert_sql, dictionary)
             .map_err(SetupError::from_conn)
     })();
 
     match result {
         Ok(id) => {
-            conn.db
+            state
+                .connection
                 .batch_execute(&format!("RELEASE SAVEPOINT {SAVEPOINT};"))
                 .map_err(SetupError::from_conn)?;
 
@@ -297,7 +314,7 @@ fn persist_dictionary(
                 .map_err(|_| SetupError::DictTrain("dictionary id overflow".to_string()))
         }
         Err(e) => {
-            let _ = conn.db.batch_execute(&format!(
+            let _ = state.connection.batch_execute(&format!(
                 "ROLLBACK TO SAVEPOINT {SAVEPOINT}; RELEASE SAVEPOINT {SAVEPOINT};"
             ));
             Err(e)

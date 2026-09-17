@@ -1,10 +1,10 @@
 use libsqlite3_sys::{InitError, SQLITE_ERROR, rusqlite_extension_init2, sqlite3_api_routines};
 
-use crate::{Database, error::SqliteError};
+use crate::{Connection, error::SqliteError};
 
-impl Database {
+impl Connection {
     /// # Safety
-    /// `p_api` doit être un pointeur valide fourni par SQLite.
+    /// `p_api` must be a valid pointer provided by SQLite.
     pub unsafe fn init_extension(p_api: *mut sqlite3_api_routines) -> Result<(), SqliteError> {
         if p_api.is_null() {
             return Err(SqliteError::Sqlite {
