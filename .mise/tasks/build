@@ -1,3 +1,0 @@
-#!/usr/bin/env bash
-#MISE description="Build the project"
-cargo build --no-default-features --features loadable_extension

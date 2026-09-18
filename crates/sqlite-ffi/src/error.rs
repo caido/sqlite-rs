@@ -37,7 +37,7 @@ impl SqliteError {
     }
 
     /// # Safety
-    /// pz_err_msg is a pointer instantiated by sqlite3_set_last_error_callback
+    /// `pz_err_msg` is the out-pointer passed by SQLite into the C entrypoint
     pub unsafe fn report(&self, pz_err_msg: *mut *mut c_char) -> i32 {
         let code = self.code();
         if pz_err_msg.is_null() {

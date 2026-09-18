@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-#MISE description="Lint with clippy"
-
-cargo clippy --all-targets -- -D warnings
-cargo clippy --lib --no-default-features --features loadable_extension -- -D warnings

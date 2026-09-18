@@ -1,0 +1,27 @@
+[package]
+name = "sqlite-compress"
+version = "0.0.1"
+edition = "2021"
+
+[dependencies]
+zstd = { version = "0.13.3", features = ["zdict_builder"] }
+parking_lot = "0.12.4"
+zerocopy = { version = "0.8.56", features = ["derive"] }
+thiserror = { workspace = true }
+sqlite-ffi = { path = "../crates/sqlite-ffi", default-features = false }
+libsqlite3-sys = { workspace = true, default-features = false }
+sqlite-ffi-macros = { path = "../crates/sqlite-ffi-macros" }
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["bundled"]
+bundled = [
+    "sqlite-ffi/bundled",
+    "libsqlite3-sys/bundled",
+]
+loadable_extension = [
+    "sqlite-ffi/loadable_extension",
+    "libsqlite3-sys/loadable_extension",
+]

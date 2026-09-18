@@ -38,44 +38,51 @@ jobs:
       - name: Check formatting
         run: mise run fmt:prod
 
-  clippy:
-    name: Clippy
-    runs-on: warp-ubuntu-latest-x64-2x
-    timeout-minutes: 15
+  validate-component:
+    name: ${{ matrix.component }}
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [sqlite-compress]
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6.0.2
+      clippy:
+        name: Clippy
+        runs-on: warp-ubuntu-latest-x64-2x
+        timeout-minutes: 15
+        steps:
+          - name: Checkout repository
+            uses: actions/checkout@v6.0.2
 
-      - name: Install Mise
-        uses: caido/action-mise-action@5ac50f778e26fac95da98d50503682459e86d566 # v3.2.0
-        with:
-          version: ${{ vars.CI__MISE_VERSION }}
-          install: true
-          # Cache must be disabled until https://github.com/jdx/mise-action/issues/215 is fixed
-          cache: false
-          log_level: debug
-          install_args: --env ${{ env.MISE_ENV }}
+          - name: Install Mise
+            uses: caido/action-mise-action@5ac50f778e26fac95da98d50503682459e86d566 # v3.2.0
+            with:
+              version: ${{ vars.CI__MISE_VERSION }}
+              install: true
+              # Cache must be disabled until https://github.com/jdx/mise-action/issues/215 is fixed
+              cache: false
+              log_level: debug
+              install_args: --env ${{ env.MISE_ENV }}
 
-      - name: Run clippy
-        run: mise run clippy
+          - name: Run clippy
+            run: mise run ${{ matrix.component }}:clippy
 
-  test:
-    name: Test
-    runs-on: warp-ubuntu-latest-x64-2x
-    timeout-minutes: 15
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6.0.2
+      test:
+        name: Test
+        runs-on: warp-ubuntu-latest-x64-2x
+        timeout-minutes: 15
+        steps:
+          - name: Checkout repository
+            uses: actions/checkout@v6.0.2
 
-      - name: Install Mise
-        uses: caido/action-mise-action@5ac50f778e26fac95da98d50503682459e86d566 # v3.2.0
-        with:
-          version: ${{ vars.CI__MISE_VERSION }}
-          install: true
-          # Cache must be disabled until https://github.com/jdx/mise-action/issues/215 is fixed
-          cache: false
-          log_level: debug
-          install_args: --env ${{ env.MISE_ENV }}
+          - name: Install Mise
+            uses: caido/action-mise-action@5ac50f778e26fac95da98d50503682459e86d566 # v3.2.0
+            with:
+              version: ${{ vars.CI__MISE_VERSION }}
+              install: true
+              # Cache must be disabled until https://github.com/jdx/mise-action/issues/215 is fixed
+              cache: false
+              log_level: debug
+              install_args: --env ${{ env.MISE_ENV }}
 
-      - name: Run tests
-        run: mise run test
+          - name: Run tests
+            run: mise run ${{ matrix.component }}:test

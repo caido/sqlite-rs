@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Lint with clippy"
+
+cargo clippy -p sqlite-compress --all-targets --no-default-features --features loadable_extension -- -D warnings
