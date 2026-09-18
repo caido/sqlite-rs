@@ -1,4 +1,4 @@
-use sqlite_ffi::Connection;
+use sqlite_ffi::{first_value, Connection, SqlValue};
 
 use crate::{
     dict::DICT_TABLE_NAME,
@@ -14,14 +14,20 @@ pub(crate) fn read_current_id<C: AsRef<Connection>>(
 
     let connection = connection.as_ref();
 
-    let latest = connection
-        .query_i64(&format!(
-            "SELECT COALESCE(MAX(id), 0) FROM {table} \
-         WHERE table_name = {} AND column_name = {} AND is_current = 1",
-            quote_literal(column.table()),
-            quote_literal(column.column())
-        ))
+    let rows = connection
+        .query(
+            &format!(
+                "SELECT COALESCE(MAX(id), 0) FROM {table} \
+         WHERE table_name = ?1 AND column_name = ?2 AND is_current = 1",
+            ),
+            &[
+                SqlValue::Text(quote_literal(column.table())),
+                SqlValue::Text(quote_literal(column.column())),
+            ],
+        )
         .map_err(|e| DictError::Connection(e.into()))?;
+
+    let latest = first_value(&rows).and_then(SqlValue::as_i64).unwrap_or(0);
 
     if latest == 0 {
         return Ok(None);

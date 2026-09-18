@@ -1,4 +1,4 @@
-use sqlite_ffi::Connection;
+use sqlite_ffi::{column_texts, first_value, Connection, SqlValue};
 
 use crate::{
     setup::{
@@ -19,11 +19,17 @@ fn ensure_table_exists<C: AsRef<Connection>>(
 ) -> Result<(), SetupError> {
     let connection = connection.as_ref();
 
-    let count = connection
-        .query_i64(&format!(
-            "SELECT COUNT(*) FROM {schema}.sqlite_master WHERE type = 'table' AND name = {table_name}"
-        ))
+    let rows = connection
+        .query(
+            &format!(
+                "SELECT COUNT(*) FROM {schema}.sqlite_master \
+                 WHERE type = 'table' AND name = ?1"
+            ),
+            &[SqlValue::Text(table_name.as_str().to_string())],
+        )
         .map_err(SetupError::from_conn)?;
+
+    let count = first_value(&rows).and_then(SqlValue::as_i64).unwrap_or(0);
 
     if count == 0 {
         return Err(SetupError::TableNotFound(format!(
@@ -46,13 +52,16 @@ fn ensure_column_exist<C: AsRef<Connection>>(
 ) -> Result<(), SetupError> {
     let connection = connection.as_ref();
 
-    let col_exists = connection
-        .query_i64(&format!(
-            "SELECT COUNT(*) FROM pragma_table_info({table}, {schema}) WHERE name = {column}"
-        ))
+    let rows = connection
+        .query(
+            &format!("SELECT COUNT(*) FROM pragma_table_info({table}, {schema}) WHERE name = ?1"),
+            &[SqlValue::Text(column.as_str().to_string())],
+        )
         .map_err(SetupError::from_conn)?;
 
-    if col_exists == 0 {
+    let count = first_value(&rows).and_then(SqlValue::as_i64).unwrap_or(0);
+
+    if count == 0 {
         return Err(SetupError::ColumnNotFound {
             table: table.as_str().to_string(),
             column: column.as_str().to_string(),
@@ -67,10 +76,14 @@ fn table_column_names(
     schema: &SchemaName,
     table: &TableName,
 ) -> Result<Vec<String>, SetupError> {
-    db.query_strings(&format!(
-        "SELECT name AS value FROM pragma_table_info({table}, {schema}) ORDER BY cid"
-    ))
-    .map_err(SetupError::from_conn)
+    let rows = db
+        .query(
+            &format!("SELECT name AS value FROM pragma_table_info({table}, {schema}) ORDER BY cid"),
+            &[],
+        )
+        .map_err(SetupError::from_conn)?;
+
+    Ok(column_texts(rows))
 }
 
 fn build_decoded_select_list(
@@ -98,19 +111,6 @@ fn ensure_table_view_exists<C: AsRef<Connection>>(
     table: &SetupTable,
 ) -> Result<(), SetupError> {
     let connection = connection.as_ref();
-    let view_name = table.name.decoded_view_name();
-    let schema_qualified = table.as_qualified_schema_name();
-    let count = connection
-        .query_i64(&format!(
-            "SELECT COUNT(*) FROM {schema_qualified}.sqlite_master \
-             WHERE type = 'view' AND name = {}",
-            quote_literal(&view_name)
-        ))
-        .map_err(SetupError::from_conn)?;
-
-    if count > 0 {
-        return Ok(());
-    }
 
     let table_columns = table_column_names(connection, &table.schema, &table.name)?;
     let compressed = table.compressed_column_names();

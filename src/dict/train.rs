@@ -1,4 +1,4 @@
-use sqlite_ffi::Connection;
+use sqlite_ffi::{first_value, Connection, SqlValue};
 
 use crate::{
     cache::{get_decoder_in_cache, insert_into_caches},
@@ -151,12 +151,17 @@ fn has_enough_samples<C: AsRef<Connection>>(
 ) -> Result<(bool, i64), SetupError> {
     let connection = connection.as_ref();
 
-    let count = connection
-        .query_i64(&format!(
-            "SELECT COUNT(*) FROM {table_name} \
-         WHERE {column_name} IS NOT NULL AND length({column_name}) > 0"
-        ))
+    let rows = connection
+        .query(
+            &format!(
+                "SELECT COUNT(*) FROM {table_name} \
+             WHERE {column_name} IS NOT NULL AND length({column_name}) > 0"
+            ),
+            &[],
+        )
         .map_err(SetupError::from_conn)?;
+
+    let count = first_value(&rows).and_then(SqlValue::as_i64).unwrap_or(0);
 
     Ok((count >= min_samples as i64, count))
 }
@@ -176,17 +181,23 @@ fn has_retrain_required<C: AsRef<Connection>>(
 ) -> Result<bool, SetupError> {
     let connection = connection.as_ref();
 
-    let last = connection
-        .query_i64(&format!(
-            "SELECT COALESCE(\
+    let rows = connection
+        .query(
+            &format!(
+                "SELECT COALESCE(\
                 (SELECT row_count FROM {dict_table} \
-                 WHERE table_name = {} AND column_name = {} \
+                 WHERE table_name = ?1 AND column_name = ?2 \
                  ORDER BY id DESC LIMIT 1),\
                 -1)",
-            quote_literal(table_name),
-            quote_literal(column_name)
-        ))
+            ),
+            &[
+                SqlValue::Text(table_name.to_string()),
+                SqlValue::Text(column_name.to_string()),
+            ],
+        )
         .map_err(SetupError::from_conn)?;
+
+    let last = first_value(&rows).and_then(SqlValue::as_i64).unwrap_or(0);
 
     if last < 0 {
         return Ok(true);
@@ -213,27 +224,37 @@ fn build_dictionary(
 
     while remaining > 0 {
         let batch_limit = remaining.min(SAMPLE_BATCH_SIZE);
-        let sql = format!(
-            "SELECT {column_name} AS value FROM {table_name} \
+
+        let rows = state
+            .connection
+            .query(
+                &format!(
+                    "SELECT {column_name} AS value FROM {table_name} \
          WHERE {column_name} IS NOT NULL AND length({column_name}) > 0 \
          ORDER BY rowid DESC \
-         LIMIT {batch_limit} OFFSET {offset}"
-        );
-
-        let batch = state
-            .connection
-            .query_blobs(&sql)
+         LIMIT ?1 OFFSET ?2"
+                ),
+                &[
+                    SqlValue::Integer(batch_limit as i64),
+                    SqlValue::Integer(offset as i64),
+                ],
+            )
             .map_err(SetupError::from_conn)?;
 
-        if batch.is_empty() {
+        if rows.is_empty() {
             break;
         }
 
-        let batch_len = batch.len();
-        for blob in &batch {
+        let batch_len = rows.len();
+        for row in &rows {
+            let Some(blob) = row.first().and_then(SqlValue::as_blob) else {
+                continue;
+            };
+
             let sample = decode_sample(state, blob, schema).map_err(|e| {
                 SetupError::DictTrain(format!("failed to decode training sample: {e}"))
             })?;
+
             corpus.extend_from_slice(&sample);
             sizes.push(sample.len());
         }
