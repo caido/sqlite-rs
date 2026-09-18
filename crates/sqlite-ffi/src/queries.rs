@@ -1,93 +1,20 @@
 use std::ffi::CString;
 
 use libsqlite3_sys::{
-    SQLITE_BLOB, SQLITE_DONE, SQLITE_FLOAT, SQLITE_NULL, SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT,
-    sqlite3, sqlite3_bind_blob, sqlite3_bind_double, sqlite3_bind_int64, sqlite3_bind_null,
-    sqlite3_bind_text, sqlite3_column_blob, sqlite3_column_bytes, sqlite3_column_count,
-    sqlite3_column_double, sqlite3_column_int64, sqlite3_column_text, sqlite3_column_type,
-    sqlite3_exec, sqlite3_finalize, sqlite3_prepare_v2, sqlite3_step, sqlite3_stmt,
+    SQLITE_BLOB, SQLITE_DONE, SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL, SQLITE_OK, SQLITE_ROW,
+    SQLITE_TEXT, SQLITE_TRANSIENT, sqlite3, sqlite3_bind_blob, sqlite3_bind_double,
+    sqlite3_bind_int64, sqlite3_bind_null, sqlite3_bind_text, sqlite3_column_blob,
+    sqlite3_column_bytes, sqlite3_column_count, sqlite3_column_double, sqlite3_column_int64,
+    sqlite3_column_text, sqlite3_column_type, sqlite3_exec, sqlite3_finalize, sqlite3_prepare_v2,
+    sqlite3_step, sqlite3_stmt,
 };
 
 use crate::{Connection, SqliteError};
 
-pub enum SqlValue {
-    Null,
-    Integer(i64),
-    Float(f64),
-    Text(String),
-    Blob(Vec<u8>),
-}
-
-impl SqlValue {
-    pub fn as_i64(&self) -> Option<i64> {
-        match self {
-            Self::Integer(n) => Some(*n),
-            _ => None,
-        }
-    }
-    pub fn as_text(&self) -> Option<&str> {
-        match self {
-            Self::Text(s) => Some(s),
-            _ => None,
-        }
-    }
-    pub fn as_blob(&self) -> Option<&[u8]> {
-        match self {
-            Self::Blob(b) => Some(b),
-            _ => None,
-        }
-    }
-}
-
-pub fn first_value(rows: &[Vec<SqlValue>]) -> Option<&SqlValue> {
-    rows.first().and_then(|row| row.first())
-}
-
-pub fn column_texts(rows: Vec<Vec<SqlValue>>) -> Vec<String> {
-    rows.into_iter()
-        .filter_map(|row| row.into_iter().next())
-        .filter_map(|v| match v {
-            SqlValue::Text(s) => Some(s),
-            _ => None,
-        })
-        .collect()
-}
-
 impl Connection {
     pub fn query(&self, sql: &str, params: &[SqlValue]) -> Result<Vec<Vec<SqlValue>>, SqliteError> {
         with_stmt(self.conn.as_ptr(), sql, |stmt| unsafe {
-            for (i, p) in params.iter().enumerate() {
-                let rc = match p {
-                    SqlValue::Null => sqlite3_bind_null(stmt, i as i32 + 1),
-                    SqlValue::Integer(n) => sqlite3_bind_int64(stmt, i as i32 + 1, *n),
-                    SqlValue::Text(s) => {
-                        let c_str = CString::new(s.as_str())?;
-                        sqlite3_bind_text(
-                            stmt,
-                            i as i32 + 1,
-                            c_str.as_ptr(),
-                            c_str.as_bytes().len() as i32,
-                            SQLITE_TRANSIENT(),
-                        )
-                    }
-                    SqlValue::Blob(b) => sqlite3_bind_blob(
-                        stmt,
-                        i as i32 + 1,
-                        b.as_ptr().cast(),
-                        b.len() as i32,
-                        SQLITE_TRANSIENT(),
-                    ),
-                    SqlValue::Float(f) => sqlite3_bind_double(stmt, i as i32 + 1, *f),
-                };
-
-                if rc != SQLITE_OK {
-                    return Err(SqliteError::Sqlite {
-                        operation: "query",
-                        code: rc,
-                        message: "bind failed".into(),
-                    });
-                }
-            }
+            bind_over_values(stmt, params)?;
 
             let mut out = Vec::new();
 
@@ -118,6 +45,32 @@ impl Connection {
         })
     }
 
+    pub fn execute(&self, sql: &str, params: &[SqlValue]) -> Result<i64, SqliteError> {
+        with_stmt(self.conn.as_ptr(), sql, |stmt| unsafe {
+            bind_over_values(stmt, params)?;
+
+            let mut id = None;
+            loop {
+                match sqlite3_step(stmt) {
+                    SQLITE_ROW => {
+                        if id.is_none() {
+                            id = Some(sqlite3_column_int64(stmt, 0));
+                        }
+                    }
+                    SQLITE_DONE => break,
+                    code => {
+                        return Err(SqliteError::Sqlite {
+                            operation: "execute blob",
+                            code,
+                            message: "step failed".into(),
+                        });
+                    }
+                }
+            }
+            Ok(id.unwrap_or(0))
+        })
+    }
+
     pub fn batch_execute(&self, sql: &str) -> Result<i32, SqliteError> {
         let c_sql = CString::new(sql)?;
 
@@ -141,66 +94,97 @@ impl Connection {
             Ok(rc)
         }
     }
+}
 
-    pub fn execute_blob(&self, sql: &str, blob: &[u8]) -> Result<i64, SqliteError> {
-        with_stmt(self.conn.as_ptr(), sql, |stmt| unsafe {
-            let rc = sqlite3_bind_blob(
-                stmt,
-                1, // ?1
-                blob.as_ptr().cast(),
-                blob.len() as i32,
-                SQLITE_TRANSIENT(),
-            );
+#[derive(Debug, PartialEq)]
+pub enum SqlValue {
+    Null,
+    Integer(i64),
+    Float(f64),
+    Text(String),
+    Blob(Vec<u8>),
+}
+
+impl SqlValue {
+    pub fn as_i64(&self) -> Option<i64> {
+        match self {
+            Self::Integer(n) => Some(*n),
+            _ => None,
+        }
+    }
+    pub fn as_text(&self) -> Option<&str> {
+        match self {
+            Self::Text(s) => Some(s),
+            _ => None,
+        }
+    }
+    pub fn as_blob(&self) -> Option<&[u8]> {
+        match self {
+            Self::Blob(b) => Some(b),
+            _ => None,
+        }
+    }
+}
+
+pub fn sample_bytes(v: &SqlValue) -> Option<Vec<u8>> {
+    match v {
+        SqlValue::Blob(b) if !b.is_empty() => Some(b.clone()),
+        SqlValue::Text(s) if !s.is_empty() => Some(s.as_bytes().to_vec()),
+        _ => None,
+    }
+}
+
+pub fn first_value(rows: &[Vec<SqlValue>]) -> Option<&SqlValue> {
+    rows.first().and_then(|row| row.first())
+}
+
+pub fn column_texts(rows: Vec<Vec<SqlValue>>) -> Vec<String> {
+    rows.into_iter()
+        .filter_map(|row| row.into_iter().next())
+        .filter_map(|v| match v {
+            SqlValue::Text(s) => Some(s),
+            _ => None,
+        })
+        .collect()
+}
+
+fn bind_over_values(stmt: *mut sqlite3_stmt, params: &[SqlValue]) -> Result<(), SqliteError> {
+    unsafe {
+        for (i, p) in params.iter().enumerate() {
+            let rc = match p {
+                SqlValue::Null => sqlite3_bind_null(stmt, i as i32 + 1),
+                SqlValue::Integer(n) => sqlite3_bind_int64(stmt, i as i32 + 1, *n),
+                SqlValue::Text(s) => {
+                    let c_str = CString::new(s.as_str())?;
+                    sqlite3_bind_text(
+                        stmt,
+                        i as i32 + 1,
+                        c_str.as_ptr(),
+                        c_str.as_bytes().len() as i32,
+                        SQLITE_TRANSIENT(),
+                    )
+                }
+                SqlValue::Blob(b) => sqlite3_bind_blob(
+                    stmt,
+                    i as i32 + 1,
+                    b.as_ptr().cast(),
+                    b.len() as i32,
+                    SQLITE_TRANSIENT(),
+                ),
+                SqlValue::Float(f) => sqlite3_bind_double(stmt, i as i32 + 1, *f),
+            };
 
             if rc != SQLITE_OK {
                 return Err(SqliteError::Sqlite {
-                    operation: "execute blob",
+                    operation: "query",
                     code: rc,
                     message: "bind failed".into(),
                 });
             }
-
-            match sqlite3_step(stmt) {
-                SQLITE_ROW => Ok(sqlite3_column_int64(stmt, 0)),
-                code => Err(SqliteError::Sqlite {
-                    operation: "execute blob",
-                    code,
-                    message: "step failed".into(),
-                }),
-            }
-        })
+        }
     }
 
-    pub fn execute_blobs(&self, sql: &str, blobs: &[&[u8]]) -> Result<(), SqliteError> {
-        with_stmt(self.conn.as_ptr(), sql, |stmt| unsafe {
-            for (index, blob) in blobs.iter().enumerate() {
-                let rc = sqlite3_bind_blob(
-                    stmt,
-                    (index + 1) as i32,
-                    blob.as_ptr().cast(),
-                    blob.len() as i32,
-                    SQLITE_TRANSIENT(),
-                );
-
-                if rc != SQLITE_OK {
-                    return Err(SqliteError::Sqlite {
-                        operation: "execute blobs",
-                        code: rc,
-                        message: "bind failed".into(),
-                    });
-                }
-            }
-
-            match sqlite3_step(stmt) {
-                SQLITE_DONE => Ok(()),
-                code => Err(SqliteError::Sqlite {
-                    operation: "execute blobs",
-                    code,
-                    message: "step failed".into(),
-                }),
-            }
-        })
-    }
+    Ok(())
 }
 
 fn read_column(stmt: *mut sqlite3_stmt, index: i32) -> Result<SqlValue, SqliteError> {
@@ -235,6 +219,13 @@ fn read_column(stmt: *mut sqlite3_stmt, index: i32) -> Result<SqlValue, SqliteEr
                 SqlValue::Blob(std::slice::from_raw_parts(ptr.cast::<u8>(), len).to_vec())
             }
         },
+        code => {
+            return Err(SqliteError::Sqlite {
+                operation: "read column",
+                code,
+                message: "unknown column type".into(),
+            });
+        }
     };
 
     Ok(res)

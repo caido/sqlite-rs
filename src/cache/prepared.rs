@@ -112,7 +112,7 @@ mod tests {
 
     use libsqlite3_sys::{sqlite3, sqlite3_auto_extension, sqlite3_close, sqlite3_open, SQLITE_OK};
     use parking_lot::Once;
-    use sqlite_ffi::SqliteError;
+    use sqlite_ffi::{SqlValue, SqliteError};
     use zstd::{
         bulk::{Compressor, Decompressor},
         dict::{DecoderDictionary, EncoderDictionary},
@@ -120,8 +120,7 @@ mod tests {
 
     use super::{get_decoder_in_cache, get_encoder_in_cache};
     use crate::{
-        dict::DictId, sqlite3_compress_init, utils::quote_literal, ExtensionState, SetupConnection,
-        DEFAULT_LEVEL,
+        dict::DictId, sqlite3_compress_init, ExtensionState, SetupConnection, DEFAULT_LEVEL,
     };
 
     const SCHEMA: &str = "main";
@@ -200,17 +199,17 @@ mod tests {
 
         state
             .connection
-            .execute_blob(
-                &format!(
-                    "INSERT OR REPLACE INTO __compress_dicts \
+            .execute(
+                "INSERT OR REPLACE INTO __compress_dicts \
          (id, dict, trained_at, table_name, column_name, row_count, is_current) \
-         VALUES ({}, ?1, strftime('%s','now'), {}, {}, 32, 1) \
+         VALUES (?1, ?2, strftime('%s','now'), ?3, ?4, 32, 1) \
          RETURNING id",
-                    id.get(),
-                    quote_literal(table_name),
-                    quote_literal(column_name),
-                ),
-                &dict,
+                &[
+                    SqlValue::Integer(id.get() as i64),
+                    SqlValue::Blob(dict),
+                    SqlValue::Text(table_name.to_string()),
+                    SqlValue::Text(column_name.to_string()),
+                ],
             )
             .unwrap();
 
@@ -376,17 +375,19 @@ mod tests {
 
         state
             .connection
-            .execute_blob(
+            .execute(
                 &format!(
                     "INSERT OR REPLACE INTO \"{schema}\".\"__compress_dicts\" \
          (id, dict, trained_at, table_name, column_name, row_count, is_current) \
-         VALUES ({}, ?1, strftime('%s','now'), '{}', '{}', 32, 1) \
-         RETURNING id",
-                    id.get(),
-                    table_name,
-                    column_name,
+         VALUES (?1, ?2, strftime('%s','now'), ?3, ?4, 32, 1) \
+         RETURNING id"
                 ),
-                &dict,
+                &[
+                    SqlValue::Integer(id.get() as i64),
+                    SqlValue::Blob(dict),
+                    SqlValue::Text(table_name.to_string()),
+                    SqlValue::Text(column_name.to_string()),
+                ],
             )
             .unwrap();
     }

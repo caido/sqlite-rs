@@ -4,6 +4,7 @@ use sqlite_compress::{
 };
 mod common;
 use common::{DEFAULT_MAX_SAMPLES, DEFAULT_MIN_SAMPLES};
+use sqlite_ffi::{first_value, SqlValue};
 
 fn invalid_config(column: SetupColumn) -> SetupConfig {
     SetupConfig {
@@ -50,10 +51,16 @@ fn setup_skips_existing_view() {
 
     setup(&db, &config).unwrap();
 
-    let count = state
+    let rows = state
         .as_ref()
-        .query_i64("SELECT COUNT(*) FROM raw.sqlite_master WHERE type = 'view'")
+        .query(
+            "SELECT COUNT(*) FROM raw.sqlite_master WHERE type = 'view'",
+            &[],
+        )
         .unwrap();
+
+    let count = first_value(&rows).unwrap().as_i64().unwrap();
+
     assert_eq!(count, 1);
 }
 
@@ -89,13 +96,15 @@ fn setup_creates_view() {
     setup(&db, &config).unwrap();
 
     let view_name = "__compress_decoded_requests_raw";
-    let count = state
+    let rows = state
         .as_ref()
-        .query_i64(&format!(
-            "SELECT COUNT(*) FROM raw.sqlite_master WHERE type = 'view' AND name = '{}'",
-            view_name
-        ))
+        .query(
+            "SELECT COUNT(*) FROM raw.sqlite_master WHERE type = 'view' AND name = ?1",
+            &[SqlValue::Text(view_name.to_string())],
+        )
         .unwrap();
+
+    let count = first_value(&rows).unwrap().as_i64().unwrap();
 
     assert_eq!(count, 1);
 }
@@ -143,15 +152,21 @@ fn setup_creates_one_view_per_table() {
 
     setup(&db, &config).unwrap();
 
-    let names = state
+    let rows = state
         .as_ref()
-        .query_strings(
+        .query(
             "SELECT name FROM raw.sqlite_master \
          WHERE type = 'view' ORDER BY name",
+            &[],
         )
         .unwrap();
 
-    assert_eq!(names, vec!["__compress_decoded_requests_raw"]);
+    assert_eq!(
+        rows,
+        vec![vec![SqlValue::Text(
+            "__compress_decoded_requests_raw".into()
+        )]]
+    );
 }
 
 #[test]

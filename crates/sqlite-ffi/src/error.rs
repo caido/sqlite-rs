@@ -1,6 +1,9 @@
-use std::ffi::{CString, c_char};
+use std::{
+    ffi::{CString, c_char},
+    ptr,
+};
 
-use libsqlite3_sys::{SQLITE_ERROR, sqlite3_mprintf};
+use libsqlite3_sys::{SQLITE_ERROR, sqlite3_malloc};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -45,10 +48,14 @@ impl SqliteError {
             return code;
         };
 
-        unsafe {
-            *pz_err_msg = sqlite3_mprintf(c"%s".as_ptr(), msg.as_ptr());
+        let bytes = msg.as_bytes_with_nul();
+        let ptr = unsafe { sqlite3_malloc(bytes.len() as i32).cast::<c_char>() };
+        if !ptr.is_null() {
+            unsafe {
+                ptr::copy_nonoverlapping(bytes.as_ptr().cast(), ptr, bytes.len());
+                *pz_err_msg = ptr;
+            }
         }
-
         code
     }
 }

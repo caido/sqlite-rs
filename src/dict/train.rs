@@ -1,4 +1,4 @@
-use sqlite_ffi::{first_value, Connection, SqlValue};
+use sqlite_ffi::{first_value, sample_bytes, Connection, SqlValue};
 
 use crate::{
     cache::{get_decoder_in_cache, insert_into_caches},
@@ -9,7 +9,7 @@ use crate::{
     functions::{decompress_raw, decompress_with_decoder, CodecError, Level},
     setup::{SetupConfig, SetupConnection, SetupError, SqlIdent},
     state::ExtensionState,
-    utils::{quote_literal, quote_qualified},
+    utils::quote_qualified,
     Header, SetupColumn, SetupTable,
 };
 
@@ -247,11 +247,11 @@ fn build_dictionary(
 
         let batch_len = rows.len();
         for row in &rows {
-            let Some(blob) = row.first().and_then(SqlValue::as_blob) else {
+            let Some(blob) = row.first().and_then(sample_bytes) else {
                 continue;
             };
 
-            let sample = decode_sample(state, blob, schema).map_err(|e| {
+            let sample = decode_sample(state, &blob, schema).map_err(|e| {
                 SetupError::DictTrain(format!("failed to decode training sample: {e}"))
             })?;
 
@@ -291,21 +291,6 @@ fn persist_dictionary(
     dictionary: &[u8],
     row_count: i64,
 ) -> Result<DictId, SetupError> {
-    let demote_sql = format!(
-        "UPDATE {schema_name} SET is_current = 0 \
-     WHERE table_name = {} AND column_name = {} AND is_current = 1",
-        quote_literal(table_name),
-        quote_literal(column_name),
-    );
-
-    let insert_sql = format!(
-        "INSERT INTO {schema_name} (dict, trained_at, table_name, column_name, row_count, is_current) \
-        VALUES (?1, strftime('%s', 'now'), {}, {}, {row_count}, 1) \
-        RETURNING id",
-        quote_literal(table_name),
-        quote_literal(column_name)
-    );
-
     state
         .connection
         .batch_execute(&format!("SAVEPOINT {SAVEPOINT};"))
@@ -314,12 +299,25 @@ fn persist_dictionary(
     let result = (|| -> Result<i64, SetupError> {
         state
             .connection
-            .batch_execute(&demote_sql)
+            .execute(
+                &format!(
+                    "UPDATE {schema_name} SET is_current = 0 \
+     WHERE table_name = ?1 AND column_name = ?2 AND is_current = 1",
+                ),
+                &[
+                    SqlValue::Text(table_name.to_string()),
+                    SqlValue::Text(column_name.to_string()),
+                ],
+            )
             .map_err(SetupError::from_conn)?;
 
         state
             .connection
-            .execute_blob(&insert_sql, dictionary)
+            .execute(&format!(
+        "INSERT INTO {schema_name} (dict, trained_at, table_name, column_name, row_count, is_current) \
+        VALUES (?1, strftime('%s', 'now'), ?2, ?3, ?4, 1) \
+        RETURNING id",
+    ), &[SqlValue::Blob(dictionary.to_vec()),SqlValue::Text(table_name.to_string()),SqlValue::Text(column_name.to_string()),SqlValue::Integer(row_count)])
             .map_err(SetupError::from_conn)
     })();
 

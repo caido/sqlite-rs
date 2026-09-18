@@ -5,6 +5,7 @@ use sqlite_compress::{
 
 mod common;
 use common::DEFAULT_MAX_SAMPLES;
+use sqlite_ffi::{first_value, SqlValue};
 
 #[test]
 fn train_persists_a_new_dictionary() {
@@ -27,9 +28,9 @@ fn train_persists_a_new_dictionary() {
         let sample = format!("GET /api/users/{i} HTTP/1.1\r\nHost: example.com\r\n\r\n");
         state
             .as_ref()
-            .execute_blob(
+            .execute(
                 "INSERT INTO raw.requests_raw (data) VALUES (?1) RETURNING id",
-                sample.as_bytes(),
+                &[SqlValue::Text(sample)],
             )
             .unwrap();
     }
@@ -52,18 +53,22 @@ fn train_persists_a_new_dictionary() {
 
     let dict_ids = train_all(&db, &config, 1024).unwrap();
 
-    let stored_id = state
+    let rows = state
         .as_ref()
-        .query_i64("SELECT id FROM raw.__compress_dicts")
-        .unwrap() as u32;
+        .query("SELECT id FROM raw.__compress_dicts", &[])
+        .unwrap();
+
+    let stored_id = first_value(&rows).unwrap().as_i64().unwrap();
 
     let dict_size = state
         .as_ref()
-        .query_i64("SELECT length(dict) FROM raw.__compress_dicts")
-        .unwrap() as usize;
+        .query("SELECT length(dict) FROM raw.__compress_dicts", &[])
+        .unwrap();
+
+    let dict_size = first_value(&dict_size).unwrap().as_i64().unwrap();
 
     assert_eq!(dict_ids.len(), 1);
-    assert_eq!(stored_id, dict_ids[0].get());
+    assert_eq!(stored_id, dict_ids[0].get() as i64);
     assert!(dict_size > 0);
 }
 
@@ -94,9 +99,9 @@ fn train_persists_dictionary_per_column() {
 
         state
             .as_ref()
-            .execute_blobs(
+            .execute(
                 "INSERT INTO raw.requests_raw (data, headers) VALUES (?1, ?2)",
-                &[data.as_bytes(), headers.as_bytes()],
+                &[SqlValue::Text(data), SqlValue::Text(headers)],
             )
             .unwrap();
     }
@@ -126,24 +131,33 @@ fn train_persists_dictionary_per_column() {
 
     let columns = state
         .as_ref()
-        .query_strings(
+        .query(
             "SELECT column_name FROM raw.__compress_dicts \
          WHERE table_name = 'requests_raw' ORDER BY column_name",
+            &[],
         )
         .unwrap();
 
-    assert_eq!(columns, ["data", "headers"]);
+    assert_eq!(
+        columns,
+        vec![
+            vec![SqlValue::Text("data".into())],
+            vec![SqlValue::Text("headers".into())],
+        ]
+    );
+
     for id in dict_ids {
-        assert_eq!(
-            state
-                .as_ref()
-                .query_i64(&format!(
-                    "SELECT COUNT(*) FROM raw.__compress_dicts WHERE id = {}",
-                    id.get()
-                ))
-                .unwrap(),
-            1
-        );
+        let rows = state
+            .as_ref()
+            .query(
+                "SELECT COUNT(*) FROM raw.__compress_dicts WHERE id = ?1",
+                &[SqlValue::Integer(id.get() as i64)],
+            )
+            .unwrap();
+
+        let count = first_value(&rows).unwrap().as_i64().unwrap();
+
+        assert_eq!(count, 1);
     }
 }
 
@@ -173,9 +187,9 @@ fn train_skips_column_without_enough_samples() {
         let data = format!("GET /api/users/{i} HTTP/1.1\r\nHost: example.com\r\n\r\n");
         state
             .as_ref()
-            .execute_blob(
+            .execute(
                 "INSERT INTO raw.requests_raw (data) VALUES (?1) RETURNING id",
-                data.as_bytes(),
+                &[SqlValue::Text(data)],
             )
             .unwrap();
     }
@@ -207,13 +221,16 @@ fn train_skips_column_without_enough_samples() {
     let dict_ids = train_all(&db, &config, 1024).unwrap();
     assert_eq!(dict_ids.len(), 1);
 
-    let count = state
+    let rows = state
         .as_ref()
-        .query_i64(
+        .query(
             "SELECT COUNT(*) FROM raw.__compress_dicts \
          WHERE table_name = 'requests_raw' AND column_name = 'data'",
+            &[],
         )
         .unwrap();
+
+    let count = first_value(&rows).unwrap().as_i64().unwrap();
 
     assert_eq!(count, 1);
 }
@@ -244,9 +261,9 @@ fn train_by_column_persists_one_column() {
         let headers = format!("content-type: application/json\r\nx-request-id: {i}\r\n");
         state
             .as_ref()
-            .execute_blobs(
+            .execute(
                 "INSERT INTO raw.requests_raw (data, headers) VALUES (?1, ?2)",
-                &[data.as_bytes(), headers.as_bytes()],
+                &[SqlValue::Text(data), SqlValue::Text(headers)],
             )
             .unwrap();
     }
@@ -289,13 +306,16 @@ fn train_by_column_persists_one_column() {
     assert!(dict_id.is_some());
     assert_eq!(dict_id.unwrap().get(), 1);
 
-    let count = state
+    let rows = state
         .as_ref()
-        .query_i64(
+        .query(
             "SELECT COUNT(*) FROM raw.__compress_dicts \
          WHERE table_name = 'requests_raw' AND column_name = 'data'",
+            &[],
         )
         .unwrap();
+
+    let count = first_value(&rows).unwrap().as_i64().unwrap();
 
     assert_eq!(count, 1);
 }
@@ -333,9 +353,9 @@ fn insert_samples(state: &ExtensionState, count: usize) {
         let sample = format!("GET /api/users/{i} HTTP/1.1\r\nHost: example.com\r\n\r\n");
         state
             .as_ref()
-            .execute_blob(
+            .execute(
                 "INSERT INTO raw.requests_raw (data) VALUES (?1) RETURNING id",
-                sample.as_bytes(),
+                &[SqlValue::Text(sample)],
             )
             .unwrap();
     }
@@ -361,23 +381,27 @@ fn train_stores_row_count() {
 
     let dict_id = dict_ids[0];
 
-    let stored_id = state
+    let rows = state
         .as_ref()
-        .query_i64(&format!(
-            "SELECT id FROM raw.__compress_dicts WHERE id = {}",
-            dict_id.get()
-        ))
+        .query(
+            "SELECT id FROM raw.__compress_dicts WHERE id = ?1",
+            &[SqlValue::Integer(dict_id.get() as i64)],
+        )
         .unwrap();
+
+    let stored_id = first_value(&rows).unwrap().as_i64().unwrap();
 
     assert_eq!(stored_id, dict_id.get() as i64);
 
-    let row_count = state
+    let rows = state
         .as_ref()
-        .query_i64(&format!(
-            "SELECT row_count FROM raw.__compress_dicts WHERE id = {}",
-            dict_id.get()
-        ))
+        .query(
+            "SELECT row_count FROM raw.__compress_dicts WHERE id = ?1",
+            &[SqlValue::Integer(dict_id.get() as i64)],
+        )
         .unwrap();
+
+    let row_count = first_value(&rows).unwrap().as_i64().unwrap();
 
     assert_eq!(row_count, sample_count as i64);
 }
@@ -405,10 +429,13 @@ fn train_skips_when_growth_below_threshold() {
     let second = train_all(&db, &config, 1024).unwrap();
     assert!(second.is_empty());
 
-    let count: i64 = state
+    let rows = state
         .as_ref()
-        .query_i64("SELECT COUNT(*) FROM raw.__compress_dicts")
+        .query("SELECT COUNT(*) FROM raw.__compress_dicts", &[])
         .unwrap();
+
+    let count = first_value(&rows).unwrap().as_i64().unwrap();
+
     assert_eq!(count, 1);
 }
 
@@ -440,13 +467,15 @@ fn train_retrains_when_growth_reaches_threshold() {
     assert_eq!(dict_ids.len(), 1);
     assert_eq!(dict_ids[0].get(), 2);
 
-    let row_count = state
+    let rows = state
         .as_ref()
-        .query_i64(&format!(
-            "SELECT row_count FROM raw.__compress_dicts WHERE id = {}",
-            dict_ids[0].get()
-        ))
+        .query(
+            "SELECT row_count FROM raw.__compress_dicts WHERE id = ?1",
+            &[SqlValue::Integer(dict_ids[0].get() as i64)],
+        )
         .unwrap();
+
+    let row_count = first_value(&rows).unwrap().as_i64().unwrap();
 
     assert_eq!(row_count, sample_count as i64);
 }
@@ -472,9 +501,9 @@ fn train_all_marks_dict_as_current() {
         let sample = format!("GET /api/users/{i} HTTP/1.1\r\nHost: example.com\r\n\r\n");
         state
             .as_ref()
-            .execute_blob(
+            .execute(
                 "INSERT INTO raw.requests_raw (data) VALUES (?1) RETURNING id",
-                sample.as_bytes(),
+                &[SqlValue::Text(sample)],
             )
             .unwrap();
     }
@@ -498,14 +527,17 @@ fn train_all_marks_dict_as_current() {
     let dict_ids = train_all(&db, &config, 1024).unwrap();
     assert_eq!(dict_ids.len(), 1);
 
-    let current = state
+    let rows = state
         .as_ref()
-        .query_i64(
+        .query(
             "SELECT id FROM raw.__compress_dicts \
          WHERE table_name = 'requests_raw' \
          AND column_name = 'data' AND is_current = 1",
+            &[],
         )
         .unwrap();
+
+    let current = first_value(&rows).unwrap().as_i64().unwrap();
 
     assert_eq!(current as u32, dict_ids[0].get());
 }

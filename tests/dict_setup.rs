@@ -4,6 +4,7 @@ use sqlite_compress::{
 };
 mod common;
 use common::{DEFAULT_MAX_SAMPLES, DEFAULT_MIN_SAMPLES};
+use sqlite_ffi::first_value;
 
 #[test]
 fn setup_table_does_not_exist() {
@@ -35,13 +36,17 @@ fn setup_table_does_not_exist() {
 
     setup(&db, &config).unwrap();
 
-    let count = state
+    let rows = state
         .as_ref()
-        .query_i64(
+        .query(
             "SELECT COUNT(*) FROM raw.sqlite_master \
              WHERE type='table' AND name='__compress_dicts'",
+            &[],
         )
         .unwrap();
+
+    let count = first_value(&rows).unwrap().as_i64().unwrap();
+
     assert_eq!(count, 1);
 }
 
@@ -85,12 +90,16 @@ fn setup_table_already_exists() {
 
     setup(&db, &config).unwrap();
 
-    let count: i64 = state
+    let rows = state
         .as_ref()
-        .query_i64(
+        .query(
             "SELECT COUNT(*) FROM raw.sqlite_master WHERE type='table' AND name='__compress_dicts'",
+            &[],
         )
         .unwrap();
+
+    let count = first_value(&rows).unwrap().as_i64().unwrap();
+
     assert_eq!(count, 1);
 }
 
@@ -139,13 +148,17 @@ fn setup_creates_dict_table_per_schema() {
     setup(&db, &config).unwrap();
 
     for schema in ["raw", "archive"] {
-        let count: i64 = state
+        let rows = state
             .as_ref()
-            .query_i64(&format!(
-                "SELECT COUNT(*) FROM {schema}.sqlite_master \
+            .query(
+                &format!(
+                    "SELECT COUNT(*) FROM {schema}.sqlite_master \
                      WHERE type = 'table' AND name = '__compress_dicts'"
-            ))
+                ),
+                &[],
+            )
             .unwrap();
+        let count = first_value(&rows).unwrap().as_i64().unwrap();
         assert_eq!(count, 1, "__compress_dicts missing in schema {schema}");
     }
 }
