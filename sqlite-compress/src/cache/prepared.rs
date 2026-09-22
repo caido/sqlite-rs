@@ -1,14 +1,12 @@
 use std::sync::Arc;
 
-use parking_lot::Mutex;
 use zstd::dict::{DecoderDictionary, EncoderDictionary};
 
 use crate::{
-    cache::DictCache,
     dict::{load_raw_dict, read_current_id, DictKey},
     functions::Level,
     state::ExtensionState,
-    ColumnKey, DictError, DictId,
+    Cache, ColumnKey, DictError, DictId,
 };
 
 pub(crate) fn get_encoder_in_cache(
@@ -84,7 +82,7 @@ pub(crate) fn warm_cache(
 }
 
 pub(crate) fn insert_into_caches(
-    cache: &Mutex<DictCache>,
+    cache: &Cache,
     column: &ColumnKey,
     dict_id: DictId,
     dictionary: &[u8],
@@ -146,7 +144,7 @@ mod tests {
             Self { db }
         }
 
-        pub fn state(&self) -> &'static ExtensionState {
+        pub fn state(&self) -> ExtensionState {
             ExtensionState::from_db(self.db).unwrap()
         }
     }
@@ -234,10 +232,10 @@ mod tests {
         let state = db.state();
 
         let id = DictId::new(2_001);
-        insert_trained_dict(state, id, "requests_raw", "data").unwrap();
+        insert_trained_dict(&state, id, "requests_raw", "data").unwrap();
 
-        let encoder = expect_encoder(get_encoder_in_cache(state, SCHEMA, id, DEFAULT_LEVEL));
-        let decoder = expect_decoder(get_decoder_in_cache(state, SCHEMA, id));
+        let encoder = expect_encoder(get_encoder_in_cache(&state, SCHEMA, id, DEFAULT_LEVEL));
+        let decoder = expect_decoder(get_decoder_in_cache(&state, SCHEMA, id));
 
         let original = b"GET /api/users/42 HTTP/1.1\r\nHost: example.com\r\n\r\n";
         let mut compressor = Compressor::with_prepared_dictionary(&encoder).unwrap();
@@ -257,10 +255,10 @@ mod tests {
         let state = db.state();
 
         let id = DictId::new(2_002);
-        insert_trained_dict(state, id, "requests_raw", "data").unwrap();
+        insert_trained_dict(&state, id, "requests_raw", "data").unwrap();
 
-        let encoder = expect_encoder(get_encoder_in_cache(state, SCHEMA, id, DEFAULT_LEVEL));
-        let decoder = expect_decoder(get_decoder_in_cache(state, SCHEMA, id));
+        let encoder = expect_encoder(get_encoder_in_cache(&state, SCHEMA, id, DEFAULT_LEVEL));
+        let decoder = expect_decoder(get_decoder_in_cache(&state, SCHEMA, id));
 
         let payloads: [&[u8]; 3] = [
             b"GET /api/users/1 HTTP/1.1\r\nHost: example.com\r\n\r\n",
@@ -284,10 +282,10 @@ mod tests {
         let db = TestDb::open();
         let state = db.state();
 
-        ensure_dicts_table(state).unwrap();
+        ensure_dicts_table(&state).unwrap();
 
         assert!(matches!(
-            get_decoder_in_cache(state, SCHEMA, DictId::new(90_002)),
+            get_decoder_in_cache(&state, SCHEMA, DictId::new(90_002)),
             Err(crate::DictError::NotReady)
         ));
     }
@@ -297,10 +295,10 @@ mod tests {
         let db = TestDb::open();
         let state = db.state();
 
-        ensure_dicts_table(state).unwrap();
+        ensure_dicts_table(&state).unwrap();
 
         assert!(matches!(
-            get_encoder_in_cache(state, SCHEMA, DictId::new(90_001), DEFAULT_LEVEL),
+            get_encoder_in_cache(&state, SCHEMA, DictId::new(90_001), DEFAULT_LEVEL),
             Err(crate::DictError::NotReady)
         ));
     }
@@ -311,10 +309,10 @@ mod tests {
         let state = db.state();
 
         let id = DictId::new(1_001);
-        insert_trained_dict(state, id, "requests_raw", "data").unwrap();
+        insert_trained_dict(&state, id, "requests_raw", "data").unwrap();
 
-        let first = expect_encoder(get_encoder_in_cache(state, SCHEMA, id, DEFAULT_LEVEL));
-        let second = expect_encoder(get_encoder_in_cache(state, SCHEMA, id, DEFAULT_LEVEL));
+        let first = expect_encoder(get_encoder_in_cache(&state, SCHEMA, id, DEFAULT_LEVEL));
+        let second = expect_encoder(get_encoder_in_cache(&state, SCHEMA, id, DEFAULT_LEVEL));
         assert!(Arc::ptr_eq(&first, &second));
     }
 
@@ -324,10 +322,10 @@ mod tests {
         let state = db.state();
 
         let id = DictId::new(1_002);
-        insert_trained_dict(state, id, "requests_raw", "data").unwrap();
+        insert_trained_dict(&state, id, "requests_raw", "data").unwrap();
 
-        let first = expect_decoder(get_decoder_in_cache(state, SCHEMA, id));
-        let second = expect_decoder(get_decoder_in_cache(state, SCHEMA, id));
+        let first = expect_decoder(get_decoder_in_cache(&state, SCHEMA, id));
+        let second = expect_decoder(get_decoder_in_cache(&state, SCHEMA, id));
 
         assert!(Arc::ptr_eq(&first, &second));
     }
@@ -338,10 +336,10 @@ mod tests {
         let state = db.state();
 
         let id = DictId::new(1_003);
-        insert_trained_dict(state, id, "requests_raw", "data").unwrap();
+        insert_trained_dict(&state, id, "requests_raw", "data").unwrap();
 
-        let encoder = expect_encoder(get_encoder_in_cache(state, SCHEMA, id, DEFAULT_LEVEL));
-        let decoder = expect_decoder(get_decoder_in_cache(state, SCHEMA, id));
+        let encoder = expect_encoder(get_encoder_in_cache(&state, SCHEMA, id, DEFAULT_LEVEL));
+        let decoder = expect_decoder(get_decoder_in_cache(&state, SCHEMA, id));
 
         let original = b"GET /api/users/42 HTTP/1.1\r\nHost: example.com\r\n\r\n";
         let mut compressor = Compressor::with_prepared_dictionary(&encoder).unwrap();
@@ -429,24 +427,25 @@ mod tests {
         let id = DictId::new(1);
         let archive_only = DictId::new(2);
 
-        seed_dict_into(state, "raw", id, "requests_raw", "data");
-        seed_dict_into(state, "archive", id, "requests_raw", "data");
-        seed_dict_into(state, "archive", archive_only, "requests_raw", "data");
+        seed_dict_into(&state, "raw", id, "requests_raw", "data");
+        seed_dict_into(&state, "archive", id, "requests_raw", "data");
+        seed_dict_into(&state, "archive", archive_only, "requests_raw", "data");
 
-        let raw_enc = expect_encoder(get_encoder_in_cache(state, "raw", id, DEFAULT_LEVEL));
-        let archive_enc = expect_encoder(get_encoder_in_cache(state, "archive", id, DEFAULT_LEVEL));
+        let raw_enc = expect_encoder(get_encoder_in_cache(&state, "raw", id, DEFAULT_LEVEL));
+        let archive_enc =
+            expect_encoder(get_encoder_in_cache(&state, "archive", id, DEFAULT_LEVEL));
         assert!(!Arc::ptr_eq(&raw_enc, &archive_enc));
 
-        let raw_enc_again = expect_encoder(get_encoder_in_cache(state, "raw", id, DEFAULT_LEVEL));
+        let raw_enc_again = expect_encoder(get_encoder_in_cache(&state, "raw", id, DEFAULT_LEVEL));
         assert!(Arc::ptr_eq(&raw_enc, &raw_enc_again));
 
-        expect_decoder(get_decoder_in_cache(state, "archive", archive_only));
+        expect_decoder(get_decoder_in_cache(&state, "archive", archive_only));
         assert!(matches!(
-            get_encoder_in_cache(state, "raw", archive_only, DEFAULT_LEVEL),
+            get_encoder_in_cache(&state, "raw", archive_only, DEFAULT_LEVEL),
             Err(crate::DictError::NotReady)
         ));
         assert!(matches!(
-            get_decoder_in_cache(state, "raw", archive_only),
+            get_decoder_in_cache(&state, "raw", archive_only),
             Err(crate::DictError::NotReady)
         ));
     }

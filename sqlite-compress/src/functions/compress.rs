@@ -44,7 +44,7 @@ pub fn sqlite_compress(context: Context, values: &[Value]) -> Result<(), SqliteE
         .unwrap_or(DictId::from(0));
 
     let compressed = if id.get() != 0 {
-        match get_encoder_in_cache(state, schema, id, DEFAULT_LEVEL) {
+        match get_encoder_in_cache(&state, schema, id, DEFAULT_LEVEL) {
             Ok(encoder) => compress_with_encoder(id, data, &encoder)
                 .map_err(|e| SqliteError::Message(e.to_string()))?,
             Err(DictError::NotReady) => compress_raw(data, DEFAULT_LEVEL)

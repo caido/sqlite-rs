@@ -44,7 +44,7 @@ pub fn sqlite_decompress(context: Context, values: &[Value]) -> Result<(), Sqlit
     let decompressed = if dict_id.get() != 0 {
         let state = ExtensionState::from_context(&context)?;
 
-        let decoder = get_decoder_in_cache(state, schema, dict_id);
+        let decoder = get_decoder_in_cache(&state, schema, dict_id);
 
         match decoder {
             Ok(decoder) => decompress_with_decoder(payload, &decoder, len)

@@ -368,8 +368,8 @@ fn train_stores_row_count() {
     let db = common::TestDb::open();
     let state = db.state();
 
-    setup_raw_table(state);
-    insert_samples(state, sample_count);
+    setup_raw_table(&state);
+    insert_samples(&state, sample_count);
 
     let config = sample_config(sample_count);
 
@@ -413,8 +413,8 @@ fn train_skips_when_growth_below_threshold() {
     let db = common::TestDb::open();
     let state = db.state();
 
-    setup_raw_table(state);
-    insert_samples(state, sample_count);
+    setup_raw_table(&state);
+    insert_samples(&state, sample_count);
 
     let config = sample_config(sample_count);
     setup(&db, &config).unwrap();
@@ -424,7 +424,7 @@ fn train_skips_when_growth_below_threshold() {
     assert_eq!(first[0].get(), 1);
 
     // +100 samples << RETRAIN_GROWTH (5000)
-    insert_samples(state, 100);
+    insert_samples(&state, 100);
 
     let second = train_all(&db, &config, 1024).unwrap();
     assert!(second.is_empty());
@@ -447,8 +447,8 @@ fn train_retrains_when_growth_reaches_threshold() {
     let db = common::TestDb::open();
     let state = db.state();
 
-    setup_raw_table(state);
-    insert_samples(state, sample_count);
+    setup_raw_table(&state);
+    insert_samples(&state, sample_count);
 
     let config = sample_config(sample_count);
     setup(&db, &config).unwrap();

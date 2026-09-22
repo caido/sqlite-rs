@@ -61,14 +61,14 @@ pub fn train_by_column<C: SetupConnection>(
     let state = ExtensionState::from_db(unsafe { connection.sqlite_handle() })?;
 
     let (enough, available) =
-        has_enough_samples(state, &table_name, &column_name, column.min_samples)?;
+        has_enough_samples(&state, &table_name, &column_name, column.min_samples)?;
 
     if !enough {
         return Ok(None);
     }
 
     if !has_retrain_required(
-        state,
+        &state,
         &dict_store,
         key.table(),
         key.column(),
@@ -79,7 +79,7 @@ pub fn train_by_column<C: SetupConnection>(
     }
 
     let dictionary = build_dictionary(
-        state,
+        &state,
         key.schema(),
         &table_name,
         &column_name,
@@ -88,7 +88,7 @@ pub fn train_by_column<C: SetupConnection>(
     )?;
 
     let dict_id = persist_dictionary(
-        state,
+        &state,
         &dict_store,
         key.table(),
         key.column(),

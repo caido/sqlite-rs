@@ -29,7 +29,7 @@ impl TestDb {
         Self { db }
     }
 
-    pub fn state(&self) -> &'static ExtensionState {
+    pub fn state(&self) -> ExtensionState {
         ExtensionState::from_db(self.db).unwrap()
     }
 }

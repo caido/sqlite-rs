@@ -19,8 +19,8 @@ pub fn setup<C: SetupConnection>(conn: &C, config: &SetupConfig) -> Result<(), S
 
     config.validate()?;
 
-    init_view(state, config)?;
-    init_dict(state, config)?;
+    init_view(&state, config)?;
+    init_dict(&state, config)?;
 
     Ok(())
 }

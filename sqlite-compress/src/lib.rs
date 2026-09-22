@@ -16,7 +16,7 @@ pub use setup::{
 use sqlite_ffi::{Connection, SqliteError};
 use sqlite_ffi_macros::sqlite_entrypoint;
 
-pub use crate::state::ExtensionState;
+pub use crate::state::{Cache, ExtensionState};
 
 #[sqlite_entrypoint]
 pub fn sqlite3_compress_init(connection: Connection) -> Result<(), SqliteError> {
