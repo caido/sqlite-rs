@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+#MISE description="Run tests"
+cargo test -p sqlite-compress
