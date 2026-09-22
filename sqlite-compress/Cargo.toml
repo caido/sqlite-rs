@@ -1,16 +1,16 @@
 [package]
 name = "sqlite-compress"
-version = "0.0.1"
+version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-zstd = { version = "0.13.3", features = ["zdict_builder"] }
-parking_lot = "0.12.4"
-zerocopy = { version = "0.8.56", features = ["derive"] }
+zstd = { version = "0.13", features = ["zdict_builder"] }
+parking_lot = "0.12"
+zerocopy = { version = "0.8", features = ["derive"] }
 thiserror = { workspace = true }
-sqlite-ffi = { path = "../crates/sqlite-ffi", default-features = false }
+sqlite-ffi = { version = "0.1.0", path = "../crates/sqlite-ffi", default-features = false }
 libsqlite3-sys = { workspace = true, default-features = false }
-sqlite-ffi-macros = { path = "../crates/sqlite-ffi-macros" }
+sqlite-ffi-macros = { version = "0.1.0", path = "../crates/sqlite-ffi-macros" }
 
 [lib]
 crate-type = ["cdylib", "rlib"]

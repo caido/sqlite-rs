@@ -7,8 +7,5 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-thiserror = "2.0.20"
-libsqlite3-sys = { git = "https://github.com/rusqlite/rusqlite", package = "libsqlite3-sys" }
-
-[patch.crates-io]
+thiserror = "2.0"
 libsqlite3-sys = { git = "https://github.com/rusqlite/rusqlite", package = "libsqlite3-sys" }
