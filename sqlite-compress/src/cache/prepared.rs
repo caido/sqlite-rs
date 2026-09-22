@@ -170,8 +170,7 @@ mod tests {
                 trained_at INTEGER NOT NULL,
                 table_name TEXT NOT NULL,
                 column_name TEXT NOT NULL,
-                row_count INTEGER NOT NULL DEFAULT 0,
-                is_current INTEGER NOT NULL DEFAULT 0
+                row_count INTEGER NOT NULL DEFAULT 0
             );
             "#,
         )?;
@@ -199,8 +198,8 @@ mod tests {
             .connection
             .execute(
                 "INSERT OR REPLACE INTO __compress_dicts \
-         (id, dict, trained_at, table_name, column_name, row_count, is_current) \
-         VALUES (?1, ?2, strftime('%s','now'), ?3, ?4, 32, 1) \
+         (id, dict, trained_at, table_name, column_name, row_count) \
+         VALUES (?1, ?2, strftime('%s','now'), ?3, ?4, 32) \
          RETURNING id",
                 &[
                     SqlValue::Integer(id.get() as i64),
@@ -376,8 +375,8 @@ mod tests {
             .execute(
                 &format!(
                     "INSERT OR REPLACE INTO \"{schema}\".\"__compress_dicts\" \
-         (id, dict, trained_at, table_name, column_name, row_count, is_current) \
-         VALUES (?1, ?2, strftime('%s','now'), ?3, ?4, 32, 1) \
+         (id, dict, trained_at, table_name, column_name, row_count) \
+         VALUES (?1, ?2, strftime('%s','now'), ?3, ?4, 32) \
          RETURNING id"
                 ),
                 &[
@@ -408,8 +407,7 @@ mod tests {
             trained_at INTEGER NOT NULL,
             table_name TEXT NOT NULL,
             column_name TEXT NOT NULL,
-            row_count INTEGER NOT NULL DEFAULT 0,
-            is_current INTEGER NOT NULL DEFAULT 0
+            row_count INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE archive.__compress_dicts (
             id INTEGER PRIMARY KEY,
@@ -417,8 +415,7 @@ mod tests {
             trained_at INTEGER NOT NULL,
             table_name TEXT NOT NULL,
             column_name TEXT NOT NULL,
-            row_count INTEGER NOT NULL DEFAULT 0,
-            is_current INTEGER NOT NULL DEFAULT 0
+            row_count INTEGER NOT NULL DEFAULT 0
         );
         "#,
             )

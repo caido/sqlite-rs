@@ -14,7 +14,6 @@ use crate::{
 };
 
 const SAMPLE_BATCH_SIZE: usize = 64;
-const SAVEPOINT: &str = "sqlite_compress_persist_dict";
 
 pub fn train_all<C: SetupConnection>(
     connection: &C,
@@ -293,50 +292,23 @@ fn persist_dictionary(
 ) -> Result<DictId, SetupError> {
     state
         .connection
-        .batch_execute(&format!("SAVEPOINT {SAVEPOINT};"))
-        .map_err(SetupError::from_conn)?;
-
-    let result = (|| -> Result<i64, SetupError> {
-        state
-            .connection
-            .execute(
-                &format!(
-                    "UPDATE {schema_name} SET is_current = 0 \
-     WHERE table_name = ?1 AND column_name = ?2 AND is_current = 1",
-                ),
-                &[
-                    SqlValue::Text(table_name.to_string()),
-                    SqlValue::Text(column_name.to_string()),
-                ],
-            )
-            .map_err(SetupError::from_conn)?;
-
-        state
-            .connection
-            .execute(&format!(
-        "INSERT INTO {schema_name} (dict, trained_at, table_name, column_name, row_count, is_current) \
-        VALUES (?1, strftime('%s', 'now'), ?2, ?3, ?4, 1) \
+        .execute(
+            &format!(
+                "INSERT INTO {schema_name} (dict, trained_at, table_name, column_name, row_count) \
+        VALUES (?1, strftime('%s', 'now'), ?2, ?3, ?4) \
         RETURNING id",
-    ), &[SqlValue::Blob(dictionary.to_vec()),SqlValue::Text(table_name.to_string()),SqlValue::Text(column_name.to_string()),SqlValue::Integer(row_count)])
-            .map_err(SetupError::from_conn)
-    })();
-
-    match result {
-        Ok(id) => {
-            state
-                .connection
-                .batch_execute(&format!("RELEASE SAVEPOINT {SAVEPOINT};"))
-                .map_err(SetupError::from_conn)?;
-
+            ),
+            &[
+                SqlValue::Blob(dictionary.to_vec()),
+                SqlValue::Text(table_name.to_string()),
+                SqlValue::Text(column_name.to_string()),
+                SqlValue::Integer(row_count),
+            ],
+        )
+        .map_err(SetupError::from_conn)
+        .and_then(|id| {
             u32::try_from(id)
                 .map(DictId::new)
                 .map_err(|_| SetupError::DictTrain("dictionary id overflow".to_string()))
-        }
-        Err(e) => {
-            let _ = state.connection.batch_execute(&format!(
-                "ROLLBACK TO SAVEPOINT {SAVEPOINT}; RELEASE SAVEPOINT {SAVEPOINT};"
-            ));
-            Err(e)
-        }
-    }
+        })
 }
