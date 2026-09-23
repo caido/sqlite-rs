@@ -32,8 +32,7 @@ fn ensure_table_exists<C: AsRef<Connection>>(
             trained_at INTEGER NOT NULL,
             table_name TEXT NOT NULL,
             column_name TEXT NOT NULL,
-            row_count INTEGER NOT NULL,
-            is_current INTEGER NOT NULL DEFAULT 0
+            row_count INTEGER NOT NULL
         );
     "
             ))

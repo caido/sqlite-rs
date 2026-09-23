@@ -1,11 +1,37 @@
 use sqlite_compress::{
-    setup, train_all, train_by_column, ExtensionState, SchemaName, SetupColumn, SetupConfig,
-    SetupTable, TableName, DEFAULT_LEVEL, DEFAULT_RETRAIN_GROWTH,
+    setup, train_all, train_by_column, ExtensionState, Header, SchemaName, SetupColumn,
+    SetupConfig, SetupTable, TableName, DEFAULT_LEVEL, DEFAULT_RETRAIN_GROWTH,
 };
 
 mod common;
 use common::DEFAULT_MAX_SAMPLES;
 use sqlite_ffi::{first_value, SqlValue};
+
+pub fn compress_blob(state: &ExtensionState, data: &[u8]) -> Vec<u8> {
+    let rows = state
+        .as_ref()
+        .query(
+            "SELECT compress(?1, 'raw', 'requests_raw', 'data')",
+            &[SqlValue::Blob(data.to_vec())],
+        )
+        .unwrap();
+    first_value(&rows).unwrap().as_blob().unwrap().to_vec()
+}
+
+pub fn decompress_blob(state: &ExtensionState, blob: &[u8]) -> Vec<u8> {
+    let rows = state
+        .as_ref()
+        .query(
+            "SELECT decompress(?1, 'raw')",
+            &[SqlValue::Blob(blob.to_vec())],
+        )
+        .unwrap();
+    first_value(&rows).unwrap().as_blob().unwrap().to_vec()
+}
+
+pub fn header_dict_id(blob: &[u8]) -> u32 {
+    Header::parse(blob).unwrap().0.dict_id.get()
+}
 
 #[test]
 fn train_persists_a_new_dictionary() {
@@ -482,62 +508,123 @@ fn train_retrains_when_growth_reaches_threshold() {
 
 #[test]
 fn train_all_marks_dict_as_current() {
-    let sample_count = 64;
+    let prior_row_count = 100_i64;
+    let sample_count = (prior_row_count as usize) + DEFAULT_RETRAIN_GROWTH;
 
     let db = common::TestDb::open();
     let state = db.state();
 
+    setup_raw_table(&state);
+    insert_samples(&state, sample_count);
+
+    let config = sample_config(sample_count);
+    setup(&db, &config).unwrap();
+
     state
         .as_ref()
-        .batch_execute(
-            "
-        ATTACH DATABASE ':memory:' AS raw;
-        CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
-        ",
-        )
+        .batch_execute(&format!(
+            "INSERT INTO raw.__compress_dicts \
+             (id, dict, trained_at, table_name, column_name, row_count) \
+             VALUES (1, X'00', strftime('%s','now'), \
+             'requests_raw', 'data', {prior_row_count})"
+        ))
         .unwrap();
-
-    for i in 0..sample_count {
-        let sample = format!("GET /api/users/{i} HTTP/1.1\r\nHost: example.com\r\n\r\n");
-        state
-            .as_ref()
-            .execute(
-                "INSERT INTO raw.requests_raw (data) VALUES (?1) RETURNING id",
-                &[SqlValue::Text(sample)],
-            )
-            .unwrap();
-    }
-
-    let config = SetupConfig {
-        tables: vec![SetupTable {
-            name: TableName::new("requests_raw"),
-            schema: SchemaName::new("raw"),
-            columns: vec![SetupColumn::new(
-                "data",
-                DEFAULT_RETRAIN_GROWTH,
-                sample_count,
-                DEFAULT_MAX_SAMPLES,
-            )],
-        }],
-        compression_level: DEFAULT_LEVEL,
-    };
-
-    setup(&db, &config).unwrap();
 
     let dict_ids = train_all(&db, &config, 1024).unwrap();
     assert_eq!(dict_ids.len(), 1);
+    let new_id = dict_ids[0].get();
+    assert_eq!(new_id, 2);
 
     let rows = state
         .as_ref()
         .query(
-            "SELECT id FROM raw.__compress_dicts \
-         WHERE table_name = 'requests_raw' \
-         AND column_name = 'data' AND is_current = 1",
+            "SELECT COUNT(*), MAX(id) FROM raw.__compress_dicts \
+             WHERE table_name = 'requests_raw' AND column_name = 'data'",
             &[],
         )
         .unwrap();
+    let count = rows[0][0].as_i64().unwrap();
+    let max_id = rows[0][1].as_i64().unwrap();
+    assert_eq!(count, 2);
+    assert_eq!(max_id as u32, new_id);
 
-    let current = first_value(&rows).unwrap().as_i64().unwrap();
+    let compressed = compress_blob(
+        &state,
+        b"GET /api/users/0 HTTP/1.1\r\nHost: example.com\r\n\r\n",
+    );
+    assert_eq!(header_dict_id(&compressed), new_id);
+}
 
-    assert_eq!(current as u32, dict_ids[0].get());
+#[test]
+fn decompress_old_dict_after_retrain() {
+    let sample_count = 64;
+    let db = common::TestDb::open();
+    let state = db.state();
+
+    setup_raw_table(&state);
+    insert_samples(&state, sample_count);
+
+    let config = sample_config(sample_count);
+    setup(&db, &config).unwrap();
+
+    let first = train_all(&db, &config, 1024).unwrap();
+    assert_eq!(first[0].get(), 1);
+
+    let original = b"GET /api/users/42 HTTP/1.1\r\nHost: example.com\r\n\r\n";
+    let blob_v1 = compress_blob(&state, original);
+    assert_eq!(header_dict_id(&blob_v1), 1);
+
+    state
+        .as_ref()
+        .batch_execute("UPDATE raw.__compress_dicts SET row_count = 1 WHERE id = 1")
+        .unwrap();
+    insert_samples(&state, DEFAULT_RETRAIN_GROWTH);
+
+    let second = train_all(&db, &config, 1024).unwrap();
+    assert_eq!(second[0].get(), 2);
+
+    let blob_v2 = compress_blob(&state, original);
+    assert_eq!(header_dict_id(&blob_v2), 2);
+
+    assert_eq!(decompress_blob(&state, &blob_v1), original);
+    assert_eq!(decompress_blob(&state, &blob_v2), original);
+}
+
+#[test]
+fn compress_uses_current_id_in_header() {
+    let sample_count = 64;
+    let db = common::TestDb::open();
+    let state = db.state();
+
+    setup_raw_table(&state);
+    insert_samples(&state, sample_count);
+
+    let config = sample_config(sample_count);
+    setup(&db, &config).unwrap();
+
+    let first = train_all(&db, &config, 1024).unwrap();
+    let id1 = first[0].get();
+
+    let payload = b"GET /api/users/7 HTTP/1.1\r\nHost: example.com\r\n\r\n";
+    let blob = compress_blob(&state, payload);
+    assert_eq!(header_dict_id(&blob), id1);
+    assert_eq!(decompress_blob(&state, &blob), payload);
+
+    // Retraîn → header suit le nouveau current
+    state
+        .as_ref()
+        .batch_execute(&format!(
+            "UPDATE raw.__compress_dicts SET row_count = {} WHERE id = {}",
+            sample_count as i64 - DEFAULT_RETRAIN_GROWTH as i64,
+            id1
+        ))
+        .unwrap();
+    insert_samples(&state, DEFAULT_RETRAIN_GROWTH);
+
+    let second = train_all(&db, &config, 1024).unwrap();
+    let id2 = second[0].get();
+    assert_ne!(id2, id1);
+
+    let blob2 = compress_blob(&state, payload);
+    assert_eq!(header_dict_id(&blob2), id2);
 }

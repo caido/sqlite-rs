@@ -1,10 +1,6 @@
 use sqlite_ffi::{first_value, Connection, SqlValue};
 
-use crate::{
-    dict::DICT_TABLE_NAME,
-    utils::{quote_literal, quote_qualified},
-    ColumnKey, DictError, DictId,
-};
+use crate::{dict::DICT_TABLE_NAME, utils::quote_qualified, ColumnKey, DictError, DictId};
 
 pub(crate) fn read_current_id<C: AsRef<Connection>>(
     connection: C,
@@ -17,12 +13,12 @@ pub(crate) fn read_current_id<C: AsRef<Connection>>(
     let rows = connection
         .query(
             &format!(
-                "SELECT COALESCE(MAX(id), 0) FROM {table} \
-         WHERE table_name = ?1 AND column_name = ?2 AND is_current = 1",
+                "SELECT id FROM {table} \
+         WHERE table_name = ?1 AND column_name = ?2 ORDER BY id DESC LIMIT 1",
             ),
             &[
-                SqlValue::Text(quote_literal(column.table())),
-                SqlValue::Text(quote_literal(column.column())),
+                SqlValue::Text(column.table().to_string()),
+                SqlValue::Text(column.column().to_string()),
             ],
         )
         .map_err(|e| DictError::Connection(e.into()))?;
