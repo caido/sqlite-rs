@@ -32,19 +32,18 @@ pub(crate) fn decompress_raw(
     zstd::bulk::decompress(payload, uncompressed_len).map_err(CodecError::DecompressionFailed)
 }
 
-pub fn sqlite_decompress(context: Context, values: &[Value]) -> Result<(), SqliteError> {
-    let blob = values[0].to_blob();
-    let schema = values[1].to_text()?;
-
+pub(crate) fn decompress(
+    state: &ExtensionState,
+    blob: &[u8],
+    schema: &str,
+) -> Result<Vec<u8>, SqliteError> {
     let (header, payload) = Header::parse(blob).map_err(|e| SqliteError::Message(e.to_string()))?;
 
     let dict_id = DictId::from(header.dict_id.get());
     let len = header.uncompressed_len.get() as usize;
 
     let decompressed = if dict_id.get() != 0 {
-        let state = ExtensionState::from_context(&context)?;
-
-        let decoder = get_decoder_in_cache(&state, schema, dict_id);
+        let decoder = get_decoder_in_cache(state, schema, dict_id);
 
         match decoder {
             Ok(decoder) => decompress_with_decoder(payload, &decoder, len)
@@ -57,6 +56,17 @@ pub fn sqlite_decompress(context: Context, values: &[Value]) -> Result<(), Sqlit
     } else {
         decompress_raw(payload, len).map_err(|e| SqliteError::Message(e.to_string()))?
     };
+
+    Ok(decompressed)
+}
+
+pub fn sqlite_decompress(context: Context, values: &[Value]) -> Result<(), SqliteError> {
+    let blob = values[0].to_blob();
+    let schema = values[1].to_text()?;
+
+    let state = ExtensionState::from_context(&context)?;
+
+    let decompressed = decompress(&state, blob, schema)?;
 
     context.result_blob(&decompressed);
 

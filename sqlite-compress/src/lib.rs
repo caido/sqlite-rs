@@ -1,6 +1,7 @@
 mod cache;
 mod dict;
 mod functions;
+mod prune;
 mod setup;
 mod state;
 mod utils;
@@ -9,6 +10,7 @@ pub const DEFAULT_RETRAIN_GROWTH: usize = 5000;
 
 pub use dict::{errors::DictError, train_all, train_by_column, ColumnKey, DictId};
 pub use functions::{CodecError, Header, DEFAULT_LEVEL};
+pub use prune::prune;
 pub use setup::{
     setup, ColumnName, SchemaName, SetupColumn, SetupConfig, SetupConnection, SetupError,
     SetupTable, TableName,

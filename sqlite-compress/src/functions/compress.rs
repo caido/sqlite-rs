@@ -27,25 +27,15 @@ fn compress_raw(data: &[u8], level: Level) -> std::result::Result<Vec<u8>, Codec
     wrap(DictId::from(0), data.len(), compressed)
 }
 
-pub fn sqlite_compress(context: Context, values: &[Value]) -> Result<(), SqliteError> {
-    let data = values[0].to_blob();
-    let schema = values[1].to_text()?;
-    let table = values[2].to_text()?;
-    let column = values[3].to_text()?;
-
-    let key = ColumnKey::new(schema, table, column);
-
-    let state = ExtensionState::from_context(&context)?;
-
-    let id = state
-        .cache
-        .lock()
-        .current_id(&key)
-        .unwrap_or(DictId::from(0));
-
-    let compressed = if id.get() != 0 {
-        match get_encoder_in_cache(&state, schema, id, DEFAULT_LEVEL) {
-            Ok(encoder) => compress_with_encoder(id, data, &encoder)
+pub(crate) fn compress(
+    state: &ExtensionState,
+    schema: &str,
+    dict_id: DictId,
+    data: &[u8],
+) -> Result<Vec<u8>, SqliteError> {
+    let compressed = if dict_id.get() != 0 {
+        match get_encoder_in_cache(state, schema, dict_id, DEFAULT_LEVEL) {
+            Ok(encoder) => compress_with_encoder(dict_id, data, &encoder)
                 .map_err(|e| SqliteError::Message(e.to_string()))?,
             Err(DictError::NotReady) => compress_raw(data, DEFAULT_LEVEL)
                 .map_err(|e| SqliteError::Message(e.to_string()))?,
@@ -55,6 +45,27 @@ pub fn sqlite_compress(context: Context, values: &[Value]) -> Result<(), SqliteE
     } else {
         compress_raw(data, DEFAULT_LEVEL).map_err(|e| SqliteError::Message(e.to_string()))?
     };
+
+    Ok(compressed)
+}
+
+pub fn sqlite_compress(context: Context, values: &[Value]) -> Result<(), SqliteError> {
+    let data = values[0].to_blob();
+    let schema = values[1].to_text()?;
+    let table = values[2].to_text()?;
+    let column = values[3].to_text()?;
+
+    let column = ColumnKey::new(schema, table, column);
+
+    let state = ExtensionState::from_context(&context)?;
+
+    let dict_id = state
+        .cache
+        .lock()
+        .current_id(&column)
+        .unwrap_or(DictId::from(0));
+
+    let compressed = compress(&state, column.schema(), dict_id, data)?;
 
     context.result_blob(&compressed);
 

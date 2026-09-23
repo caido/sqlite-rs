@@ -1,37 +1,13 @@
 use sqlite_compress::{
-    setup, train_all, train_by_column, ExtensionState, Header, SchemaName, SetupColumn,
-    SetupConfig, SetupTable, TableName, DEFAULT_LEVEL, DEFAULT_RETRAIN_GROWTH,
+    setup, train_all, train_by_column, ExtensionState, SchemaName, SetupColumn, SetupConfig,
+    SetupTable, TableName, DEFAULT_LEVEL, DEFAULT_RETRAIN_GROWTH,
 };
 
 mod common;
 use common::DEFAULT_MAX_SAMPLES;
 use sqlite_ffi::{first_value, SqlValue};
 
-pub fn compress_blob(state: &ExtensionState, data: &[u8]) -> Vec<u8> {
-    let rows = state
-        .as_ref()
-        .query(
-            "SELECT compress(?1, 'raw', 'requests_raw', 'data')",
-            &[SqlValue::Blob(data.to_vec())],
-        )
-        .unwrap();
-    first_value(&rows).unwrap().as_blob().unwrap().to_vec()
-}
-
-pub fn decompress_blob(state: &ExtensionState, blob: &[u8]) -> Vec<u8> {
-    let rows = state
-        .as_ref()
-        .query(
-            "SELECT decompress(?1, 'raw')",
-            &[SqlValue::Blob(blob.to_vec())],
-        )
-        .unwrap();
-    first_value(&rows).unwrap().as_blob().unwrap().to_vec()
-}
-
-pub fn header_dict_id(blob: &[u8]) -> u32 {
-    Header::parse(blob).unwrap().0.dict_id.get()
-}
+use crate::common::{compress_blob, decompress_blob, header_dict_id};
 
 #[test]
 fn train_persists_a_new_dictionary() {
