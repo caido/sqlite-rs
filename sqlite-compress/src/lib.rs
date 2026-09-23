@@ -28,5 +28,7 @@ pub fn sqlite3_compress_init(connection: Connection) -> Result<(), SqliteError> 
 
     connection.create_function("decompress", 2, functions::sqlite_decompress)?;
 
+    connection.create_function("clike", 5, functions::sqlite_clike)?;
+
     Ok(())
 }

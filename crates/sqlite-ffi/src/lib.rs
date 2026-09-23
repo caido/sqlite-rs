@@ -10,6 +10,7 @@ mod queries;
 mod status;
 mod values;
 
+pub use blob::SqliteBlob;
 pub use connection::Connection;
 pub use context::Context;
 pub use error::SqliteError;

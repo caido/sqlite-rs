@@ -28,6 +28,10 @@ impl Context {
             sqlite3_result_error(self.ctx.as_ptr(), error.as_ptr().cast(), error.len() as i32);
         }
     }
+
+    pub fn result_int64(&self, value: i64) {
+        unsafe { libsqlite3_sys::sqlite3_result_int64(self.ctx.as_ptr(), value) };
+    }
 }
 
 unsafe fn result_blob_raw(context: *mut sqlite3_context, blob: *const c_void, size: i32) {

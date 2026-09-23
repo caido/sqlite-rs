@@ -1,16 +1,17 @@
 use std::{
-    ffi::{CStr, CString, c_int, c_void},
+    ffi::{CStr, CString, c_char, c_int, c_void},
     ptr::NonNull,
 };
 
 use libsqlite3_sys::{
-    SQLITE_OK, sqlite3_blob, sqlite3_blob_bytes, sqlite3_blob_close, sqlite3_blob_open,
+    SQLITE_OK, sqlite3, sqlite3_blob, sqlite3_blob_bytes, sqlite3_blob_close, sqlite3_blob_open,
     sqlite3_blob_read, sqlite3_errmsg,
 };
 
 use crate::{Connection, error::SqliteError};
 
 pub struct SqliteBlob {
+    db: NonNull<sqlite3>,
     handle: NonNull<sqlite3_blob>,
 }
 
@@ -22,6 +23,7 @@ impl SqliteBlob {
     pub fn read_at(&self, offset: usize, buf: &mut [u8]) -> Result<(), SqliteError> {
         let n = i32::try_from(buf.len())
             .map_err(|_| SqliteError::Message("read length exceeds i32".into()))?;
+
         let offset = i32::try_from(offset)
             .map_err(|_| SqliteError::Message("read offset exceeds i32".into()))?;
 
@@ -39,6 +41,7 @@ impl SqliteBlob {
                 message,
             });
         }
+
         Ok(())
     }
 }
@@ -83,6 +86,7 @@ impl Connection {
         }
 
         Ok(SqliteBlob {
+            db: NonNull::new(self.as_ptr()).expect("database pointer is not valid"),
             handle: NonNull::new(blob).expect("sqlite3_blob_open returned a null handle"),
         })
     }
@@ -96,13 +100,13 @@ impl Drop for SqliteBlob {
 
 unsafe fn blob_open_raw(
     db: *mut libsqlite3_sys::sqlite3,
-    schema: *const std::ffi::c_char,
-    table: *const std::ffi::c_char,
-    column: *const std::ffi::c_char,
+    schema: *const c_char,
+    table: *const c_char,
+    column: *const c_char,
     rowid: i64,
-    flags: std::ffi::c_int,
+    flags: c_int,
     blob: *mut *mut sqlite3_blob,
-) -> std::ffi::c_int {
+) -> c_int {
     unsafe { sqlite3_blob_open(db, schema, table, column, rowid, flags, blob) }
 }
 
@@ -110,11 +114,11 @@ unsafe fn blob_read_raw(
     blob: *mut sqlite3_blob,
     buf: *mut c_void,
     n: c_int,
-    offset: std::ffi::c_int,
-) -> std::ffi::c_int {
+    offset: c_int,
+) -> c_int {
     unsafe { sqlite3_blob_read(blob, buf, n, offset) }
 }
 
-unsafe fn blob_bytes_raw(blob: *mut sqlite3_blob) -> std::ffi::c_int {
+unsafe fn blob_bytes_raw(blob: *mut sqlite3_blob) -> c_int {
     unsafe { sqlite3_blob_bytes(blob) }
 }
