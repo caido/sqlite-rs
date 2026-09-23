@@ -1,3 +1,4 @@
+use memchr::memmem::Finder;
 use sqlite_ffi::{Context, SqliteError, Value};
 use zstd::stream::raw::{Decoder, Operation};
 
@@ -85,25 +86,20 @@ fn scan(
     first_len: usize,
     needle: &[u8],
 ) -> Result<bool, SqliteError> {
+    let finder = Finder::new(needle);
+
     let mut plain = vec![0u8; CHUNK];
-    let mut overlap = Vec::new();
+    let mut tail = Vec::with_capacity(needle.len() - 1);
 
     let first = feed(
         decoder,
         &compressed[header_len..first_len],
         &mut plain,
-        &mut overlap,
-        needle,
+        &mut tail,
+        &finder,
     )?;
 
     if first.matched || first.frame_done {
-        eprintln!(
-            "clike rust vecs: compressed={} plain={} overlap={}",
-            compressed.len(),
-            plain.capacity(),
-            overlap.capacity(),
-        );
-
         return Ok(first.matched);
     }
 
@@ -114,43 +110,29 @@ fn scan(
         blob.read_at(pos, &mut compressed[..n])?;
         pos += n;
 
-        let step = feed(decoder, &compressed[..n], &mut plain, &mut overlap, needle)?;
+        let step = feed(decoder, &compressed[..n], &mut plain, &mut tail, &finder)?;
         if step.matched || step.frame_done {
-            eprintln!(
-                "clike rust vecs: compressed={} plain={} overlap={}",
-                compressed.len(),
-                plain.capacity(),
-                overlap.capacity(),
-            );
-
             return Ok(step.matched);
         }
     }
 
-    let tail = feed(decoder, &[], &mut plain, &mut overlap, needle)?;
-
-    eprintln!(
-        "clike rust vecs: compressed={} plain={} overlap={}",
-        compressed.len(),
-        plain.capacity(),
-        overlap.capacity(),
-    );
-    Ok(tail.matched)
+    let last = feed(decoder, &[], &mut plain, &mut tail, &finder)?;
+    Ok(last.matched)
 }
 
 fn feed(
     decoder: &mut Decoder<'_>,
     mut input: &[u8],
     plain: &mut [u8],
-    overlap: &mut Vec<u8>,
-    needle: &[u8],
+    tail: &mut Vec<u8>,
+    finder: &Finder<'_>,
 ) -> Result<Progress, SqliteError> {
     loop {
         let status = decoder
             .run_on_buffers(input, plain)
             .map_err(|e| SqliteError::Message(e.to_string()))?;
 
-        if status.bytes_written > 0 && take_match(overlap, &plain[..status.bytes_written], needle) {
+        if status.bytes_written > 0 && take_match(finder, tail, &plain[..status.bytes_written]) {
             return Ok(Progress {
                 matched: true,
                 frame_done: status.remaining == 0,
@@ -179,16 +161,30 @@ fn feed(
     }
 }
 
-fn take_match(overlap: &mut Vec<u8>, chunk: &[u8], needle: &[u8]) -> bool {
-    if needle.is_empty() {
-        return false;
+fn take_match(finder: &Finder<'_>, tail: &mut Vec<u8>, chunk: &[u8]) -> bool {
+    let k = finder.needle().len() - 1;
+
+    if !tail.is_empty() {
+        let head = &chunk[..k.min(chunk.len())];
+        let base = tail.len();
+        tail.extend_from_slice(head);
+        if finder.find(tail).is_some() {
+            return true;
+        }
+        tail.truncate(base);
     }
 
-    overlap.extend_from_slice(chunk);
-    let matched = overlap.windows(needle.len()).any(|window| window == needle);
-    let keep = needle.len() - 1;
-    if overlap.len() > keep {
-        overlap.drain(..overlap.len() - keep);
+    if finder.find(chunk).is_some() {
+        return true;
     }
-    matched
+
+    if chunk.len() >= k {
+        tail.clear();
+        tail.extend_from_slice(&chunk[chunk.len() - k..]);
+    } else {
+        tail.extend_from_slice(chunk);
+        let excess = tail.len().saturating_sub(k);
+        tail.drain(..excess);
+    }
+    false
 }

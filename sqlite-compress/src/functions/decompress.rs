@@ -58,8 +58,6 @@ pub fn sqlite_decompress(context: Context, values: &[Value]) -> Result<(), Sqlit
         decompress_raw(payload, len).map_err(|e| SqliteError::Message(e.to_string()))?
     };
 
-    eprintln!("decompress rust vec: {}", decompressed.capacity());
-
     context.result_blob(&decompressed);
 
     Ok(())

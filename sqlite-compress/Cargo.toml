@@ -11,6 +11,7 @@ thiserror = { workspace = true }
 sqlite-ffi = { version = "0.1.0", path = "../crates/sqlite-ffi", default-features = false }
 libsqlite3-sys = { workspace = true, default-features = false }
 sqlite-ffi-macros = { version = "0.1.0", path = "../crates/sqlite-ffi-macros" }
+memchr = "2.8.3"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -25,3 +26,10 @@ loadable_extension = [
     "sqlite-ffi/loadable_extension",
     "libsqlite3-sys/loadable_extension",
 ]
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "scan"
+harness = false
