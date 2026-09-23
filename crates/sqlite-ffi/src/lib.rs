@@ -1,3 +1,4 @@
+mod blob;
 mod client_data;
 mod connection;
 mod context;
@@ -6,6 +7,7 @@ mod error;
 mod extension;
 mod function;
 mod queries;
+mod status;
 mod values;
 
 pub use connection::Connection;
