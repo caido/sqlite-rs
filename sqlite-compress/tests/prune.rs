@@ -1,7 +1,8 @@
 use std::time::Duration;
 
 use sqlite_compress::{
-    DEFAULT_LEVEL, ExtensionState, PruneStatus, SchemaName, SetupColumn, SetupConfig, SetupTable, TableName, prune, setup, train_by_column
+    prune, setup, train_by_column, ExtensionState, PruneStatus, SchemaName, SetupColumn,
+    SetupConfig, SetupTable, TableName, DEFAULT_LEVEL,
 };
 use sqlite_ffi::{first_value, SqlValue};
 
@@ -18,8 +19,11 @@ struct PruneFixture {
     plaintexts: Vec<Vec<u8>>,
     dict_ids: Vec<u32>,
 }
-
 fn init() -> PruneFixture {
+    init_with_groups(GROUPS)
+}
+
+fn init_with_groups(groups: usize) -> PruneFixture {
     let db = common::TestDb::open();
     let state = db.state();
 
@@ -54,10 +58,10 @@ fn init() -> PruneFixture {
 
     setup(&db, &config).unwrap();
 
-    let mut plaintexts = Vec::with_capacity(GROUPS * PER_GROUP);
-    let mut dict_ids = Vec::with_capacity(GROUPS);
+    let mut plaintexts = Vec::with_capacity(groups * PER_GROUP);
+    let mut dict_ids = Vec::with_capacity(groups);
 
-    for group in 0..GROUPS {
+    for group in 0..groups {
         let mut pending = Vec::with_capacity(PER_GROUP);
 
         for index in 0..PER_GROUP {
@@ -101,7 +105,6 @@ fn init() -> PruneFixture {
     assert_groups_use_distinct_dicts(&fixture);
     fixture
 }
-
 fn request_payload(group: usize, index: usize) -> Vec<u8> {
     format!(
         "GET /api/users/{group}/{index} HTTP/1.1\r\n\
@@ -118,9 +121,8 @@ fn assert_groups_use_distinct_dicts(fixture: &PruneFixture) {
     let rows = stored_data(&state);
 
     assert!(rows.len() > PAGE_SIZE);
-    assert_eq!(rows.len(), GROUPS * PER_GROUP);
-    assert_eq!(fixture.dict_ids.len(), GROUPS);
-    assert_eq!(dict_row_count(&state), GROUPS as i64);
+    assert_eq!(rows.len(), fixture.dict_ids.len() * PER_GROUP);
+    assert_eq!(dict_row_count(&state), fixture.dict_ids.len() as i64);
 
     for (group, dict_id) in fixture.dict_ids.iter().enumerate() {
         let start = group * PER_GROUP;
@@ -199,6 +201,61 @@ fn prune_timeout_keeps_cursor_then_resume_finishes() {
     assert_eq!(cursor[0].as_i64().unwrap(), 100);
     assert_eq!(cursor[1].as_i64().unwrap(), latest as i64);
     assert_eq!(dict_row_count(&state), GROUPS as i64);
+
+    let status = prune(&fixture.db, "raw", None).unwrap();
+    assert_eq!(status, PruneStatus::Done);
+    assert_pruned_to_latest_dict(&fixture);
+}
+
+#[test]
+fn prune_timeout_leaves_stale_row_past_cursor_and_resume_uses_it() {
+    let fixture = init_with_groups(6);
+    let state = fixture.db.state();
+    let latest = *fixture.dict_ids.last().unwrap();
+    let stale_row1 = stored_data(&state)[0].clone();
+
+    let status = prune(&fixture.db, "raw", Some(Duration::ZERO)).unwrap();
+    assert_eq!(status, PruneStatus::Partial);
+
+    let cursor = state
+        .as_ref()
+        .query(
+            "SELECT last_rowid, target_dict_id FROM raw.__compress_prune",
+            &[],
+        )
+        .unwrap();
+    assert_eq!(cursor[0][0].as_i64().unwrap(), 100);
+    assert_eq!(cursor[0][1].as_i64().unwrap(), latest as i64);
+    assert_eq!(dict_row_count(&state), 6);
+
+    let mid = stored_data(&state);
+    let migrated_row1 = mid[0].clone();
+    assert_eq!(header_dict_id(&mid[99]), latest);
+    assert_ne!(header_dict_id(&mid[100]), latest);
+
+    state
+        .as_ref()
+        .execute(
+            "UPDATE raw.requests_raw SET data = ?1 WHERE id = 1",
+            &[SqlValue::Blob(stale_row1.clone())],
+        )
+        .unwrap();
+
+    let status = prune(&fixture.db, "raw", Some(Duration::ZERO)).unwrap();
+    assert_eq!(status, PruneStatus::Partial);
+
+    let resumed = stored_data(&state);
+    assert_eq!(header_dict_id(&resumed[0]), header_dict_id(&stale_row1));
+    assert_eq!(header_dict_id(&resumed[100]), latest);
+    assert_eq!(dict_row_count(&state), 6);
+
+    state
+        .as_ref()
+        .execute(
+            "UPDATE raw.requests_raw SET data = ?1 WHERE id = 1",
+            &[SqlValue::Blob(migrated_row1)],
+        )
+        .unwrap();
 
     let status = prune(&fixture.db, "raw", None).unwrap();
     assert_eq!(status, PruneStatus::Done);

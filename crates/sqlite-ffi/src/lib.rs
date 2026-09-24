@@ -6,6 +6,7 @@ mod error;
 mod extension;
 mod function;
 mod queries;
+mod transaction;
 mod values;
 
 pub use connection::Connection;
