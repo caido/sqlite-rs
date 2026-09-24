@@ -108,6 +108,8 @@ pub fn prune<C: SetupConnection>(
                     after_rowid,
                 )?;
 
+                state.connection.wal_checkpoint(schema)?;
+
                 return Ok(PruneStatus::Partial);
             }
         }
@@ -119,6 +121,8 @@ pub fn prune<C: SetupConnection>(
         Query::delete_older_dicts(&tx, &dict_table, current_id, table_name, column_name)?;
 
         tx.commit()?;
+
+        state.connection.wal_checkpoint(schema)?;
     }
 
     Ok(PruneStatus::Done)

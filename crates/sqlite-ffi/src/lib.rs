@@ -1,3 +1,4 @@
+mod checkpoint;
 mod client_data;
 mod connection;
 mod context;
