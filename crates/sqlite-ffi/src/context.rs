@@ -1,6 +1,6 @@
 use std::{ffi::c_void, ptr::NonNull};
 
-use libsqlite3_sys::{sqlite3_context, sqlite3_result_blob, sqlite3_result_error};
+use libsqlite3_sys::{sqlite3_context, sqlite3_result_blob, sqlite3_result_error, sqlite3_result_int64};
 
 pub struct Context {
     pub(crate) ctx: NonNull<sqlite3_context>,
@@ -30,7 +30,7 @@ impl Context {
     }
 
     pub fn result_int64(&self, value: i64) {
-        unsafe { libsqlite3_sys::sqlite3_result_int64(self.ctx.as_ptr(), value) };
+        unsafe { result_int64_raw(self.ctx.as_ptr(), value) };
     }
 }
 
@@ -38,4 +38,8 @@ unsafe fn result_blob_raw(context: *mut sqlite3_context, blob: *const c_void, si
     unsafe {
         sqlite3_result_blob(context, blob, size, libsqlite3_sys::SQLITE_TRANSIENT());
     }
+}
+
+unsafe fn result_int64_raw(context: *mut sqlite3_context, value: i64) {
+    unsafe { sqlite3_result_int64(context, value) };
 }
