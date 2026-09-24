@@ -1,6 +1,7 @@
+use std::time::Duration;
+
 use sqlite_compress::{
-    prune, setup, train_by_column, ExtensionState, SchemaName, SetupColumn, SetupConfig,
-    SetupTable, TableName, DEFAULT_LEVEL,
+    DEFAULT_LEVEL, ExtensionState, PruneStatus, SchemaName, SetupColumn, SetupConfig, SetupTable, TableName, prune, setup, train_by_column
 };
 use sqlite_ffi::{first_value, SqlValue};
 
@@ -173,7 +174,33 @@ fn assert_pruned_to_latest_dict(fixture: &PruneFixture) {
 fn prune_all_keeps_one_dict_and_rewrites_every_row() {
     let fixture = init();
 
-    prune(&fixture.db, "raw").unwrap();
+    prune(&fixture.db, "raw", None).unwrap();
 
+    assert_pruned_to_latest_dict(&fixture);
+}
+
+#[test]
+fn prune_timeout_keeps_cursor_then_resume_finishes() {
+    let fixture = init();
+    let state = fixture.db.state();
+    let latest = *fixture.dict_ids.last().unwrap();
+
+    let status = prune(&fixture.db, "raw", Some(Duration::ZERO)).unwrap();
+    assert_eq!(status, PruneStatus::Partial);
+
+    let rows = state
+        .as_ref()
+        .query(
+            "SELECT last_rowid, target_dict_id FROM raw.__compress_prune",
+            &[],
+        )
+        .unwrap();
+    let cursor = &rows[0];
+    assert_eq!(cursor[0].as_i64().unwrap(), 100);
+    assert_eq!(cursor[1].as_i64().unwrap(), latest as i64);
+    assert_eq!(dict_row_count(&state), GROUPS as i64);
+
+    let status = prune(&fixture.db, "raw", None).unwrap();
+    assert_eq!(status, PruneStatus::Done);
     assert_pruned_to_latest_dict(&fixture);
 }

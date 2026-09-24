@@ -1,6 +1,7 @@
 mod config;
 mod dict;
 mod errors;
+mod prune;
 mod views;
 
 pub use config::{
@@ -11,7 +12,7 @@ use dict::init_dict;
 pub use errors::SetupError;
 use views::init_view;
 
-use crate::state::ExtensionState;
+use crate::{setup::prune::init_table, state::ExtensionState};
 
 /// Create decode views and the dictionary store for [`SetupConfig`] tables, then warm the dict cache.
 pub fn setup<C: SetupConnection>(conn: &C, config: &SetupConfig) -> Result<(), SetupError> {
@@ -21,6 +22,7 @@ pub fn setup<C: SetupConnection>(conn: &C, config: &SetupConfig) -> Result<(), S
 
     init_view(&state, config)?;
     init_dict(&state, config)?;
+    init_table(&state, config)?;
 
     Ok(())
 }
