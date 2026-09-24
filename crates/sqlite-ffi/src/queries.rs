@@ -9,7 +9,7 @@ use libsqlite3_sys::{
     sqlite3_step, sqlite3_stmt,
 };
 
-use crate::{Connection, SqliteError};
+use crate::{Connection, SqliteError, values::bytes_from_raw};
 
 impl Connection {
     pub fn query(&self, sql: &str, params: &[SqlValue]) -> Result<Vec<Vec<SqlValue>>, SqliteError> {
@@ -206,7 +206,7 @@ fn read_column(stmt: *mut sqlite3_stmt, index: i32) -> Result<SqlValue, SqliteEr
             if ptr.is_null() {
                 SqlValue::Text(String::new())
             } else {
-                let bytes = std::slice::from_raw_parts(ptr, len);
+                let bytes = bytes_from_raw(ptr, len);
                 SqlValue::Text(std::str::from_utf8(bytes)?.to_owned())
             }
         },
@@ -216,7 +216,8 @@ fn read_column(stmt: *mut sqlite3_stmt, index: i32) -> Result<SqlValue, SqliteEr
             if ptr.is_null() {
                 SqlValue::Blob(Vec::new())
             } else {
-                SqlValue::Blob(std::slice::from_raw_parts(ptr.cast::<u8>(), len).to_vec())
+                let blob = bytes_from_raw(ptr.cast(), len);
+                SqlValue::Blob(blob.to_vec())
             }
         },
         code => {

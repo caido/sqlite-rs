@@ -78,3 +78,24 @@ jobs:
           install_args: --env ${{ env.MISE_ENV }}
       - name: Run tests
         run: mise run ${{ matrix.component }}:test
+  miri:
+    name: ${{ matrix.component }} / miri
+    runs-on: warp-ubuntu-latest-x64-2x
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [sqlite-ffi]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+      - name: Install Mise
+        uses: caido/action-mise-action@5ac50f778e26fac95da98d50503682459e86d566 # v3.2.0
+        with:
+          version: ${{ vars.CI__MISE_VERSION }}
+          install: true
+          cache: false
+          log_level: debug
+          install_args: --env ${{ env.MISE_ENV }}
+      - name: Run Miri
+        run: mise run ${{ matrix.component }}:miri
