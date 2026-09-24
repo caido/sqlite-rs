@@ -7,7 +7,6 @@ mod error;
 mod extension;
 mod function;
 mod queries;
-mod status;
 mod values;
 
 pub use blob::SqliteBlob;

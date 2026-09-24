@@ -11,6 +11,7 @@ impl BenchDb {
     fn open() -> Self {
         static REGISTER: Once = Once::new();
         REGISTER.call_once(|| unsafe {
+            #[allow(clippy::missing_transmute_annotations)]
             sqlite3_auto_extension(Some(std::mem::transmute(
                 sqlite3_compress_init as *const (),
             )));

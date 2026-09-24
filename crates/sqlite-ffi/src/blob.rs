@@ -20,6 +20,10 @@ impl SqliteBlob {
         unsafe { blob_bytes_raw(self.handle.as_ptr()) as usize }
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn read_at(&self, offset: usize, buf: &mut [u8]) -> Result<(), SqliteError> {
         let n = i32::try_from(buf.len())
             .map_err(|_| SqliteError::Message("read length exceeds i32".into()))?;
