@@ -3,6 +3,7 @@ mod compress;
 mod decompress;
 mod errors;
 mod header;
+mod like;
 mod types;
 
 pub const DEFAULT_LEVEL: types::Level = types::Level::new(3);

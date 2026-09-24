@@ -1,24 +1,28 @@
-use memchr::memmem::Finder;
 use sqlite_ffi::{Context, SqliteBlob, SqliteError, Value};
 use zstd::stream::raw::{Decoder, Operation};
 
 use crate::{
-    cache::get_decoder_in_cache, functions::header::Header, DictError, DictId, ExtensionState,
+    cache::get_decoder_in_cache,
+    functions::{
+        header::Header,
+        like::{LikeMatcher, Verdict},
+    },
+    DictError, DictId, ExtensionState,
 };
 
 const CHUNK: usize = 64 * 1024;
-
-struct Progress {
-    matched: bool,
-    frame_done: bool,
-}
 
 pub fn sqlite_clike(context: Context, values: &[Value]) -> Result<(), SqliteError> {
     let schema = values[0].to_text()?;
     let table = values[1].to_text()?;
     let column = values[2].to_text()?;
     let rowid = values[3].to_i64();
-    let needle = values[4].to_text()?.as_bytes();
+    let mut matcher = LikeMatcher::new(values[4].to_text()?.as_bytes(), None)?;
+
+    if matcher.verdict() == Verdict::Match {
+        context.result_int64(1);
+        return Ok(());
+    }
 
     let state = ExtensionState::from_context(&context)?;
     let blob = state
@@ -50,18 +54,27 @@ pub fn sqlite_clike(context: Context, values: &[Value]) -> Result<(), SqliteErro
         None
     };
 
-    let matched = if let Some(dict) = &prepared {
-        let mut decoder = Decoder::with_prepared_dictionary(dict.as_ref())
-            .map_err(|e| SqliteError::Message(e.to_string()))?;
-        scan(&mut decoder, &blob, &mut compressed, header_len, needle)?
+    let mut decoder = if let Some(dict) = &prepared {
+        Decoder::with_prepared_dictionary(dict.as_ref())
     } else {
-        let mut decoder = Decoder::new().map_err(|e| SqliteError::Message(e.to_string()))?;
-        scan(&mut decoder, &blob, &mut compressed, header_len, needle)?
-    };
+        Decoder::new()
+    }
+    .map_err(|e| SqliteError::Message(e.to_string()))?;
 
-    context.result_int64(if matched { 1 } else { 0 });
-
+    let matched = scan(
+        &mut decoder,
+        &blob,
+        &mut compressed,
+        header_len,
+        &mut matcher,
+    )?;
+    context.result_int64(i64::from(matched));
     Ok(())
+}
+
+enum Step {
+    Done(bool),
+    NeedInput,
 }
 
 fn scan(
@@ -69,16 +82,11 @@ fn scan(
     blob: &SqliteBlob,
     compressed: &mut [u8],
     header_len: usize,
-    needle: &[u8],
+    matcher: &mut LikeMatcher,
 ) -> Result<bool, SqliteError> {
-    let finder = Finder::new(needle);
-
     let mut plain = vec![0u8; CHUNK];
-    let mut tail = Vec::with_capacity(needle.len() - 1);
-
     let total = blob.len();
     let mut pos = 0;
-
     while pos < total {
         let n = CHUNK.min(total - pos);
         let start = if pos == 0 {
@@ -87,22 +95,11 @@ fn scan(
             blob.read_at(pos, &mut compressed[..n])?;
             0
         };
-
         pos += n;
-
-        let step = feed(
-            decoder,
-            &compressed[start..n],
-            &mut plain,
-            &mut tail,
-            &finder,
-        )?;
-
-        if step.matched || step.frame_done {
-            return Ok(step.matched);
+        if let Step::Done(matched) = feed(decoder, &compressed[start..n], &mut plain, matcher)? {
+            return Ok(matched);
         }
     }
-
     Ok(false)
 }
 
@@ -110,69 +107,28 @@ fn feed(
     decoder: &mut Decoder<'_>,
     mut input: &[u8],
     plain: &mut [u8],
-    tail: &mut Vec<u8>,
-    finder: &Finder<'_>,
-) -> Result<Progress, SqliteError> {
+    matcher: &mut LikeMatcher,
+) -> Result<Step, SqliteError> {
     loop {
         let status = decoder
             .run_on_buffers(input, plain)
             .map_err(|e| SqliteError::Message(e.to_string()))?;
-
-        if status.bytes_written > 0 && take_match(finder, tail, &plain[..status.bytes_written]) {
-            return Ok(Progress {
-                matched: true,
-                frame_done: status.remaining == 0,
-            });
+        match matcher.push(&plain[..status.bytes_written]) {
+            Verdict::Match => return Ok(Step::Done(true)),
+            Verdict::NoMatch => return Ok(Step::Done(false)),
+            Verdict::NeedMore => {}
         }
-
         input = &input[status.bytes_read..];
-
-        if status.remaining == 0 && status.bytes_written < plain.len() {
-            return Ok(Progress {
-                matched: false,
-                frame_done: true,
-            });
+        if status.remaining == 0 {
+            return Ok(Step::Done(matcher.finish()));
         }
-
         if input.is_empty() && status.bytes_written < plain.len() {
-            return Ok(Progress {
-                matched: false,
-                frame_done: false,
-            });
+            return Ok(Step::NeedInput);
         }
-
         if status.bytes_read == 0 && status.bytes_written == 0 {
-            return Err(SqliteError::Message("zstd decoder made no progress".into()));
+            return Err(SqliteError::Message("compressed frame is truncated".into()));
         }
     }
-}
-
-fn take_match(finder: &Finder<'_>, tail: &mut Vec<u8>, chunk: &[u8]) -> bool {
-    let k = finder.needle().len() - 1;
-
-    if !tail.is_empty() {
-        let head = &chunk[..k.min(chunk.len())];
-        let base = tail.len();
-        tail.extend_from_slice(head);
-        if finder.find(tail).is_some() {
-            return true;
-        }
-        tail.truncate(base);
-    }
-
-    if finder.find(chunk).is_some() {
-        return true;
-    }
-
-    if chunk.len() >= k {
-        tail.clear();
-        tail.extend_from_slice(&chunk[chunk.len() - k..]);
-    } else {
-        tail.extend_from_slice(chunk);
-        let excess = tail.len().saturating_sub(k);
-        tail.drain(..excess);
-    }
-    false
 }
 
 #[cfg(test)]
@@ -186,7 +142,7 @@ mod tests {
     use super::*;
     use crate::{functions::header::wrap, DictId};
 
-    fn search(plain: &[u8], needle: &[u8]) -> bool {
+    fn search(plain: &[u8], pattern: &str) -> bool {
         let payload = zstd::stream::encode_all(plain, 1).unwrap();
         let stored = wrap(DictId::from(0), plain.len(), payload).unwrap();
 
@@ -209,12 +165,13 @@ mod tests {
             let mut compressed = vec![0u8; CHUNK.min(blob.len())];
             blob.read_at(0, &mut compressed).unwrap();
             let mut decoder = Decoder::new().unwrap();
+            let mut matcher = LikeMatcher::new(pattern.as_bytes(), None).unwrap();
             scan(
                 &mut decoder,
                 &blob,
                 &mut compressed,
                 Header::PREFIX_SIZE,
-                needle,
+                &mut matcher,
             )
             .unwrap()
         };
@@ -222,28 +179,66 @@ mod tests {
         found
     }
 
+    const TEXT: &[u8] = b"alpha bravo needle charlie";
+
     #[test]
-    fn finds_needle_in_first_block() {
-        let plain = b"alpha bravo needle charlie";
-        assert!(search(plain, b"needle"));
+    fn literal_pattern_is_whole_value_equality() {
+        assert!(search(TEXT, "alpha bravo needle charlie"));
+        assert!(!search(TEXT, "needle"));
+        assert!(!search(TEXT, "alpha bravo needle charli"));
     }
 
     #[test]
-    fn misses_absent_needle() {
-        assert!(!search(b"alpha bravo charlie", b"needle"));
+    fn percent_anchors_prefix_suffix_and_contains() {
+        assert!(search(TEXT, "alpha%"));
+        assert!(search(TEXT, "%charlie"));
+        assert!(search(TEXT, "%needle%"));
+        assert!(!search(TEXT, "%needle"));
+        assert!(!search(TEXT, "needle%"));
+        assert!(!search(TEXT, "%absent%"));
     }
 
     #[test]
-    fn finds_needle_across_plain_chunks() {
+    fn underscore_matches_exactly_one_character() {
+        assert!(search(TEXT, "alph_ bravo%"));
+        assert!(search(TEXT, "%n__dle%"));
+        assert!(!search(TEXT, "%n_dle%"));
+        assert!(search("aéc".as_bytes(), "a_c"));
+        assert!(!search("aéc".as_bytes(), "a__c"));
+    }
+
+    #[test]
+    fn percent_backtracks_to_a_later_occurrence() {
+        assert!(search(b"aaab", "%a%ab"));
+        assert!(search(b"axxbyyc", "a%b%c"));
+        assert!(!search(b"axxbyy", "a%b%c"));
+    }
+
+    #[test]
+    fn empty_pattern_only_matches_empty_value() {
+        assert!(!search(TEXT, ""));
+    }
+
+    #[test]
+    fn finds_literal_across_plain_chunks() {
         let mut plain = vec![b'a'; CHUNK + 8];
-        let needle = b"xyz";
         let at = CHUNK - 1;
-        plain[at..at + needle.len()].copy_from_slice(needle);
-        assert!(search(&plain, needle));
+        plain[at..at + 3].copy_from_slice(b"xyz");
+        assert!(search(&plain, "%xyz%"));
     }
 
     #[test]
-    fn finds_needle_after_first_compressed_read() {
+    fn underscore_matches_char_split_across_plain_chunks() {
+        let mut plain = vec![b'z'; CHUNK + 8];
+        plain[CHUNK - 2] = b'a';
+        plain[CHUNK - 1..CHUNK + 1].copy_from_slice("é".as_bytes());
+        plain[CHUNK + 1] = b'b';
+        assert!(search(&plain, "%a_b%"));
+        assert!(!search(&plain, "%a__b%"));
+    }
+
+    #[test]
+    fn finds_suffix_after_first_compressed_read() {
         let mut plain = vec![0u8; CHUNK + 4096];
         for (i, byte) in plain.iter_mut().enumerate() {
             *byte = (i % 251) as u8;
@@ -251,22 +246,33 @@ mod tests {
         let needle = b"NEEDLE!!";
         let at = plain.len() - needle.len();
         plain[at..].copy_from_slice(needle);
-        assert!(search(&plain, needle));
+        assert!(search(&plain, "%NEEDLE!!"));
+        assert!(!search(&plain, "%NEEDLE!"));
     }
 
     #[test]
-    fn finds_needle_between_two_windows() {
-        let needle = b"abcdef";
-        let finder = Finder::new(needle);
-        let mut tail = Vec::new();
+    fn lone_percent_matches_without_opening_the_blob() {
+        let mut db = ptr::null_mut();
+        let rc = unsafe { sqlite3_open(c":memory:".as_ptr(), &mut db) };
+        assert_eq!(rc, SQLITE_OK);
 
-        let mut first = vec![b'q'; 32];
-        first[29..].copy_from_slice(b"abc");
+        let rc = unsafe { crate::sqlite3_compress_init(db, ptr::null_mut(), ptr::null_mut()) };
+        assert_eq!(rc, SQLITE_OK);
 
-        let mut second = vec![b'z'; 16];
-        second[..3].copy_from_slice(b"def");
+        let conn = Connection::from_raw(db);
+        let rows = conn
+            .query("SELECT clike('main', 't', 'data', 1, '%')", &[])
+            .unwrap();
+        assert_eq!(rows[0][0].as_i64(), Some(1));
 
-        assert!(!take_match(&finder, &mut tail, &first));
-        assert!(take_match(&finder, &mut tail, &second));
+        unsafe { sqlite3_close(db) };
+    }
+
+    #[test]
+    fn finds_suffix_when_frame_ends_on_chunk_boundary() {
+        let mut plain = vec![b'a'; 2 * CHUNK];
+        let at = plain.len() - 3;
+        plain[at..].copy_from_slice(b"xyz");
+        assert!(search(&plain, "%xyz"));
     }
 }

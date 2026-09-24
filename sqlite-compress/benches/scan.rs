@@ -68,17 +68,21 @@ fn bench_scan(c: &mut Criterion) {
     let mut group = c.benchmark_group("clike_vs_like");
     group.sample_size(10);
 
-    for (kind, like_pat, clike_pat, expect) in [
-        ("start", "NEEDLE%", "NEEDLE", 1),
-        ("middle", "%NEEDLE%", "NEEDLE", 1),
-        ("end", "%NEEDLE", "NEEDLE", 1),
-        ("absent", "%ABSENT%", "ABSENT", 0),
+    conn.as_ref()
+        .batch_execute("PRAGMA case_sensitive_like = ON")
+        .unwrap();
+
+    for (kind, pattern, expect) in [
+        ("start", "NEEDLE%", 1),
+        ("middle", "%NEEDLE%", 1),
+        ("end", "%NEEDLE", 1),
+        ("absent", "%ABSENT%", 0),
     ] {
         let like_sql = format!(
-            "SELECT decompress(data, 'main') LIKE '{like_pat}' FROM t WHERE kind = '{kind}'"
+            "SELECT decompress(data, 'main') LIKE '{pattern}' FROM t WHERE kind = '{kind}'"
         );
         let clike_sql = format!(
-            "SELECT clike('main', 't', 'data', id, '{clike_pat}') FROM t WHERE kind = '{kind}'"
+            "SELECT clike('main', 't', 'data', id, '{pattern}') FROM t WHERE kind = '{kind}'"
         );
         assert_eq!(hit(&conn, &like_sql), expect);
         assert_eq!(hit(&conn, &clike_sql), expect);

@@ -1,21 +1,21 @@
 use std::{
-    ffi::{CStr, CString, c_char, c_int, c_void},
+    ffi::{CString, c_char, c_int, c_void},
     ptr::NonNull,
 };
 
 use libsqlite3_sys::{
     SQLITE_OK, sqlite3, sqlite3_blob, sqlite3_blob_bytes, sqlite3_blob_close, sqlite3_blob_open,
-    sqlite3_blob_read, sqlite3_errmsg,
+    sqlite3_blob_read,
 };
 
 use crate::{Connection, error::SqliteError};
 
-pub struct SqliteBlob {
-    db: NonNull<sqlite3>,
+pub struct SqliteBlob<'a> {
+    db: &'a NonNull<sqlite3>,
     handle: NonNull<sqlite3_blob>,
 }
 
-impl SqliteBlob {
+impl SqliteBlob<'_> {
     pub fn len(&self) -> usize {
         unsafe { blob_bytes_raw(self.handle.as_ptr()) as usize }
     }
@@ -34,16 +34,7 @@ impl SqliteBlob {
         let rc = unsafe { blob_read_raw(self.handle.as_ptr(), buf.as_mut_ptr().cast(), n, offset) };
 
         if rc != SQLITE_OK {
-            let message = unsafe {
-                CStr::from_ptr(sqlite3_errmsg(self.db.as_ptr()))
-                    .to_string_lossy()
-                    .into_owned()
-            };
-            return Err(SqliteError::Sqlite {
-                operation: "sqlite3_blob_read",
-                code: rc,
-                message,
-            });
+            return Err(unsafe { SqliteError::from_db(self.db.as_ptr(), "sqlite3_blob_read", rc) });
         }
 
         Ok(())
@@ -51,14 +42,14 @@ impl SqliteBlob {
 }
 
 impl Connection {
-    pub fn open_blob(
-        &self,
+    pub fn open_blob<'a>(
+        &'a self,
         schema: &str,
         table: &str,
         column: &str,
         rowid: i64,
         write: bool,
-    ) -> Result<SqliteBlob, SqliteError> {
+    ) -> Result<SqliteBlob<'a>, SqliteError> {
         let schema = CString::new(schema)?;
         let table = CString::new(table)?;
         let column = CString::new(column)?;
@@ -77,26 +68,17 @@ impl Connection {
         };
 
         if rc != SQLITE_OK {
-            let message = unsafe {
-                CStr::from_ptr(sqlite3_errmsg(self.as_ptr()))
-                    .to_string_lossy()
-                    .into_owned()
-            };
-            return Err(SqliteError::Sqlite {
-                operation: "sqlite3_blob_open",
-                code: rc,
-                message,
-            });
+            return Err(unsafe { SqliteError::from_db(self.as_ptr(), "sqlite3_blob_open", rc) });
         }
 
         Ok(SqliteBlob {
-            db: NonNull::new(self.as_ptr()).expect("database pointer is not valid"),
+            db: &self.conn,
             handle: NonNull::new(blob).expect("sqlite3_blob_open returned a null handle"),
         })
     }
 }
 
-impl Drop for SqliteBlob {
+impl Drop for SqliteBlob<'_> {
     fn drop(&mut self) {
         unsafe { sqlite3_blob_close(self.handle.as_ptr()) };
     }
