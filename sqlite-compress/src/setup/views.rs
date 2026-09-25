@@ -43,7 +43,6 @@ fn ensure_table_exists<C: AsRef<Connection>>(
 }
 
 /// For each column in the table, check if the column exists in the database.
-/// Based on the table name and the schema.
 fn ensure_column_exist<C: AsRef<Connection>>(
     connection: &C,
     table: &TableName,
@@ -86,6 +85,10 @@ fn table_column_names(
     Ok(column_texts(rows))
 }
 
+/// Produces the projection for a decoded view.
+///
+/// Only configured columns are passed to `decompress`; all others retain their
+/// original value and order from SQLite's table metadata.
 fn build_decoded_select_list(
     table_columns: &[String],
     compressed: &std::collections::HashSet<&str>,
@@ -106,6 +109,8 @@ fn build_decoded_select_list(
         .join(", ")
 }
 
+/// Ensure the view exists in the database.
+/// If not, create it.
 fn ensure_table_view_exists<C: AsRef<Connection>>(
     connection: &C,
     table: &SetupTable,

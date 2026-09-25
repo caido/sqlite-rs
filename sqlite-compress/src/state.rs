@@ -6,6 +6,11 @@ use sqlite_ffi::{Connection, Context, SqliteError};
 
 use crate::cache::DictCache;
 
+/// Per-connection state for the extension: the SQLite connection and its dictionary cache.
+///
+/// `sqlite3_compress_init` calls [`ExtensionState::attach`], which stores an empty [`Cache`] in the connection's client data.
+/// `setup`, `train_all`, `compress`, and `decompress` read that same cache back with [`ExtensionState::from_db`] or [`ExtensionState::from_context`].
+/// The cache is an `Arc`, so every lookup shares the encoders, decoders, and current dict ids for this connection.
 pub struct ExtensionState {
     pub(crate) connection: Connection,
     pub(crate) cache: Cache,

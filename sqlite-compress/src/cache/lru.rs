@@ -7,10 +7,11 @@ use crate::dict::DictKey;
 
 const MAX_CACHED_DICTS: usize = 5;
 
-/// Fixed-capacity LRU cache of dictionaries keyed by [`DictKey`].
+/// Bounds the memory used by prepared dictionaries for one SQLite connection.
 ///
-/// Holds at most [`MAX_CACHED_DICTS`] entries. [`DictLru::get`] and [`DictLru::insert`]
-/// promote a key to most-recent; [`DictLru::peek`] does not.
+/// Access through [`DictLru::get`] refreshes recency because the dictionary was
+/// used for a codec operation. [`DictLru::peek`] deliberately does not, which
+/// lets the registry check for an entry without changing eviction order.
 pub(crate) struct DictLru<T> {
     map: HashMap<DictKey, Arc<T>>,
     order: VecDeque<DictKey>,

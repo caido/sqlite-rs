@@ -13,7 +13,9 @@ use views::init_view;
 
 use crate::state::ExtensionState;
 
-/// Create decode views and the dictionary store for [`SetupConfig`] tables, then warm the dict cache.
+/// Create decode views and the dictionary store for [`SetupConfig`] tables.
+///
+/// The dictionary store is warmed to ensure the dictionary is ready to be used.
 pub fn setup<C: SetupConnection>(conn: &C, config: &SetupConfig) -> Result<(), SetupError> {
     let state = ExtensionState::from_db(unsafe { conn.sqlite_handle() })?;
 

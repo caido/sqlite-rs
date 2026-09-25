@@ -27,6 +27,16 @@ fn compress_raw(data: &[u8], level: Level) -> std::result::Result<Vec<u8>, Codec
     wrap(DictId::from(0), data.len(), compressed)
 }
 
+/// SQLite callback for `compress(blob, schema, table, column)`.
+///
+/// `sqlite3_compress_init` registers this as a 4-argument scalar function.
+/// The blob is compressed with the column's current dictionary when `setup` or `train_all` has cached one.
+/// Otherwise it is compressed as raw zstd and the payload header stores dict id `0`.
+///
+/// ```sql
+/// INSERT INTO requests (body)
+/// VALUES (compress(:body, 'main', 'requests', 'body'));
+/// ```
 pub fn sqlite_compress(context: Context, values: &[Value]) -> Result<(), SqliteError> {
     let data = values[0].to_blob();
     let schema = values[1].to_text()?;

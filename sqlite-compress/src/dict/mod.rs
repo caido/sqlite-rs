@@ -11,9 +11,10 @@ pub use train::{train_all, train_by_column};
 pub(crate) use types::DictKey;
 pub use types::{ColumnKey, DictId};
 
+/// Name of the per-schema table that stores trained dictionaries.
 pub static DICT_TABLE_NAME: &str = "__compress_dicts";
 
-pub(crate) fn load_raw_dict<C: AsRef<Connection>>(
+pub(crate) fn get_raw_dict<C: AsRef<Connection>>(
     dict_key: &DictKey,
     connection: C,
 ) -> Result<Vec<u8>, DictError> {

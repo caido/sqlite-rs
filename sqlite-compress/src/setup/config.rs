@@ -31,6 +31,7 @@ impl SchemaName {
     }
 }
 
+/// A table name paired with a schema by [`SetupTable`].
 #[derive(Debug, Clone)]
 pub struct TableName(String);
 
@@ -74,6 +75,12 @@ impl SetupColumn {
         }
     }
 
+    /// Validates that the sampling and retraining thresholds can be satisfied.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SetupError::InvalidConfig`] when a threshold is zero or the
+    /// sampling limit is smaller than the initial-training threshold.
     pub fn validate(&self) -> Result<(), SetupError> {
         if self.retrain_growth == 0 {
             return Err(SetupError::InvalidConfig(
@@ -111,6 +118,8 @@ impl ColumnName {
         Self(name.to_string())
     }
 
+    /// Returns the column-specific name `__compress_decoded_<table>_<column>`;
+    /// setup creates the table-level `__compress_decoded_<table>` view instead.
     pub fn view_name(&self, table_name: &TableName) -> String {
         format!("{}_{}_{}", VIEW_SUFFIX, table_name.as_str(), self.as_str())
     }
@@ -128,6 +137,7 @@ impl Display for ColumnName {
     }
 }
 
+/// Converts a configuration name into a quoted SQL identifier.
 pub trait SqlIdent {
     fn as_str(&self) -> &str;
 
@@ -136,6 +146,7 @@ pub trait SqlIdent {
     }
 }
 
+/// Describes the tables and columns managed by the extension.
 #[derive(Debug, Clone)]
 pub struct SetupConfig {
     pub tables: Vec<SetupTable>,
@@ -143,12 +154,22 @@ pub struct SetupConfig {
 }
 
 impl SetupConfig {
+    /// Iterates over every configured table and column pair.
+    ///
+    /// Training uses this flattened order to apply the same policy to
+    /// every configured column.
     pub fn iter_columns(&self) -> impl Iterator<Item = (&SetupTable, &SetupColumn)> {
         self.tables
             .iter()
             .flat_map(|table| table.columns.iter().map(move |column| (table, column)))
     }
 
+    /// Validates every column policy before setup or training changes the database.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SetupError::InvalidConfig`] when a sample or retraining bound
+    /// cannot produce a valid dictionary.
     pub fn validate(&self) -> Result<(), SetupError> {
         for table in &self.tables {
             for column in &table.columns {
