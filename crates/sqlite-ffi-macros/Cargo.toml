@@ -1,0 +1,19 @@
+[package]
+name = "sqlite-ffi-macros"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+sqlite-ffi = { path = "../sqlite-ffi", default-features = false }
+libsqlite3-sys = { workspace = true }
+syn = { version = "3", features = ["full"] }
+quote = "1"
+
+[features]
+loadable_extension = [
+    "sqlite-ffi/loadable_extension",
+    "libsqlite3-sys/loadable_extension",
+]
