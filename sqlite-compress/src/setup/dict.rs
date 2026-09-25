@@ -44,8 +44,6 @@ fn ensure_table_exists<C: AsRef<Connection>>(
 
 /// Create the dictionary store for [`SetupConfig`] tables, then warm the dict cache.
 /// The warm cache is mandatory to ensure the dictionary is ready to be used.
-/// By [get_decoder_cached](crate::dict::get_decoder_cached), [get_encoder_cached](crate::dict::get_encoder_cached),
-/// the dictionary is cached in memory.
 pub(super) fn init_dict(state: &ExtensionState, config: &SetupConfig) -> Result<(), SetupError> {
     ensure_table_exists(state, config)?;
 

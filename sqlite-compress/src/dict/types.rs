@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 use crate::DictError;
 
+/// Unique identifier for a dictionary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DictId(u32);
 
@@ -53,9 +54,6 @@ impl DictKey {
 }
 
 /// Identifies the table column whose current dictionary is being selected.
-///
-/// The schema is part of the identity: identical table and column names may
-/// refer to independent data in attached databases.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct ColumnKey {
     schema: String,

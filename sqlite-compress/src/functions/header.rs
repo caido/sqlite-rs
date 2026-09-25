@@ -21,7 +21,7 @@ impl TryFrom<u8> for CodecKind {
 
 /// Binary prefix stored before every compressed payload.
 ///
-/// It gives the decoder the codec, dictionary selection, and output size.
+/// It gives the decoder the version, codec, header_len, dict_id and uncompressed_len.
 /// `header_len` lets later versions append fields while preserving the start of the payload.
 #[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable)]
 #[repr(C)]

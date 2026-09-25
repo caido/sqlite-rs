@@ -15,6 +15,19 @@ use crate::{
 
 const SAMPLE_BATCH_SIZE: usize = 64;
 
+/// Train one dictionary for every column in `config`.
+///
+/// Each column is handled by [`train_by_column`]. A column is skipped, and omitted from the
+/// returned ids, when it has fewer than `min_samples` non-empty values, or when the sample
+/// count has not grown by `retrain_growth` since the dictionary already stored for it.
+/// The first dictionary for a column is trained as soon as `min_samples` is reached.
+///
+/// A trained column samples up to `max_samples` of the newest values, builds a zstd
+/// dictionary of `dict_capacity` bytes, inserts it into `__compress_dicts`, and updates
+/// the in-memory encoder, decoder, and current dict id. The returned [`DictId`] is the
+/// new row id; later `compress` calls for that column use it.
+///
+/// The first error stops the walk. Columns already trained in this call stay stored.
 pub fn train_all<C: SetupConnection>(
     connection: &C,
     config: &SetupConfig,

@@ -32,6 +32,15 @@ pub(crate) fn decompress_raw(
     zstd::bulk::decompress(payload, uncompressed_len).map_err(CodecError::DecompressionFailed)
 }
 
+/// SQLite callback for `decompress(blob, schema)`.
+///
+/// `sqlite3_compress_init` registers this scalar function.
+/// The blob header selects the dictionary: dict id `0` is raw zstd, and any other id is loaded from `__compress_dicts` in `schema`.
+///
+/// ```sql
+/// SELECT decompress(body, 'main') AS body
+/// FROM requests;
+/// ```
 pub fn sqlite_decompress(context: Context, values: &[Value]) -> Result<(), SqliteError> {
     let blob = values[0].to_blob();
     let schema = values[1].to_text()?;

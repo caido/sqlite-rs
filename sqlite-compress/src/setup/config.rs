@@ -10,7 +10,6 @@ use crate::{
 
 const VIEW_SUFFIX: &str = "__compress_decoded";
 
-/// A schema name used when addressing SQLite objects.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct SchemaName(String);
 
@@ -58,10 +57,6 @@ impl Display for TableName {
     }
 }
 
-/// Training policy for one compressed column.
-///
-/// `min_samples` is the threshold for the first dictionary, `max_samples`
-/// bounds each corpus, and `retrain_growth` gates later replacements.
 #[derive(Debug, Clone)]
 pub struct SetupColumn {
     pub name: ColumnName,
@@ -115,7 +110,6 @@ impl SetupColumn {
     }
 }
 
-/// A column name used when addressing SQLite objects.
 #[derive(Debug, Clone)]
 pub struct ColumnName(String);
 
@@ -185,7 +179,6 @@ impl SetupConfig {
     }
 }
 
-/// Groups the compressed columns of one table in one schema.
 #[derive(Debug, Clone)]
 pub struct SetupTable {
     pub name: TableName,

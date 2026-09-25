@@ -3,12 +3,13 @@ use std::sync::Arc;
 use zstd::dict::{DecoderDictionary, EncoderDictionary};
 
 use crate::{
-    dict::{load_raw_dict, read_current_id, DictKey},
+    dict::{get_raw_dict, read_current_id, DictKey},
     functions::Level,
     state::ExtensionState,
     Cache, ColumnKey, DictError, DictId,
 };
 
+/// Return the prepared zstd encoder for `(schema, dict_id)`, loading it from `__compress_dicts` and caching it on a miss.
 pub(crate) fn get_encoder_in_cache(
     state: &ExtensionState,
     schema: &str,
@@ -21,7 +22,7 @@ pub(crate) fn get_encoder_in_cache(
         return Ok(dict);
     }
 
-    let raw = load_raw_dict(&key, state)?;
+    let raw = get_raw_dict(&key, state)?;
 
     let mut cache = state.cache.lock();
 
@@ -35,6 +36,7 @@ pub(crate) fn get_encoder_in_cache(
     Ok(encoder)
 }
 
+/// Return the prepared zstd decoder for `(schema, dict_id)`, loading it from `__compress_dicts` and caching it on a miss.
 pub(crate) fn get_decoder_in_cache(
     state: &ExtensionState,
     schema: &str,
@@ -46,7 +48,7 @@ pub(crate) fn get_decoder_in_cache(
         return Ok(dict);
     }
 
-    let raw = load_raw_dict(&key, state)?;
+    let raw = get_raw_dict(&key, state)?;
 
     let mut cache = state.cache.lock();
 
@@ -60,6 +62,7 @@ pub(crate) fn get_decoder_in_cache(
     Ok(decoder)
 }
 
+/// Load this column's current dict id, encoder, and decoder. Call it as early as possible so later `compress` and `decompress` hit the cache.
 pub(crate) fn warm_cache(
     state: &ExtensionState,
     column: &ColumnKey,

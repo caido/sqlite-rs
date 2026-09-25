@@ -2,7 +2,6 @@ use thiserror::Error;
 
 use crate::dict::errors::DictError;
 
-/// Describes a failure while encoding or decoding an extension payload.
 #[derive(Error, Debug)]
 pub enum CodecError {
     #[error("dictionary error: {0}")]

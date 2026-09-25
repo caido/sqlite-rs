@@ -1,6 +1,4 @@
 /// Zstandard compression level passed to encoder construction.
-///
-/// This wrapper keeps compression policy explicit in setup and training APIs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Level(i32);
 
