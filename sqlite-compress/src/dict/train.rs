@@ -22,7 +22,7 @@ const SAMPLE_BATCH_SIZE: usize = 64;
 /// count has not grown by `retrain_growth` since the dictionary already stored for it.
 /// The first dictionary for a column is trained as soon as `min_samples` is reached.
 ///
-/// A trained column samples up to `max_samples` of the newest values, builds a zstd
+/// A trained column samples up to `max_samples` of random values, builds a zstd
 /// dictionary of `dict_capacity` bytes, inserts it into `__compress_dicts`, and updates
 /// the in-memory encoder, decoder, and current dict id. The returned [`DictId`] is the
 /// new row id; later `compress` calls for that column use it.
@@ -218,7 +218,7 @@ fn has_retrain_required<C: AsRef<Connection>>(
 }
 
 /// Build the dictionary from the samples.
-/// It is done by collecting the samples from the tables, and building the dictionary.
+/// It is done by collecting random samples from the tables, and building the dictionary.
 /// Using stream approach to avoid loading all the samples into memory.
 fn build_dictionary(
     state: &ExtensionState,
@@ -230,7 +230,6 @@ fn build_dictionary(
 ) -> Result<Vec<u8>, SetupError> {
     let mut corpus = Vec::new();
     let mut sizes = Vec::new();
-    let mut offset = 0usize;
     let mut remaining = max_samples;
 
     while remaining > 0 {
@@ -241,14 +240,11 @@ fn build_dictionary(
             .query(
                 &format!(
                     "SELECT {column_name} AS value FROM {table_name} \
-         WHERE {column_name} IS NOT NULL AND length({column_name}) > 0 \
-         ORDER BY rowid DESC \
-         LIMIT ?1 OFFSET ?2"
+                 WHERE {column_name} IS NOT NULL AND length({column_name}) > 0 \
+                 ORDER BY RANDOM() \
+                 LIMIT ?1"
                 ),
-                &[
-                    SqlValue::Integer(batch_limit as i64),
-                    SqlValue::Integer(offset as i64),
-                ],
+                &[SqlValue::Integer(batch_limit as i64)],
             )
             .map_err(SetupError::from_conn)?;
 
@@ -270,7 +266,6 @@ fn build_dictionary(
             sizes.push(sample.len());
         }
 
-        offset += batch_len;
         remaining = remaining.saturating_sub(batch_len);
         if batch_len < batch_limit {
             break;
