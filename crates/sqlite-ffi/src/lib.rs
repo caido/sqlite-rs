@@ -1,3 +1,4 @@
+mod blob;
 mod client_data;
 mod connection;
 mod context;
@@ -8,6 +9,7 @@ mod function;
 mod queries;
 mod values;
 
+pub use blob::SqliteBlob;
 pub use connection::Connection;
 pub use context::Context;
 pub use error::SqliteError;

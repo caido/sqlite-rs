@@ -1,9 +1,9 @@
 use std::{
-    ffi::{CString, c_char},
+    ffi::{CStr, CString, c_char},
     ptr,
 };
 
-use libsqlite3_sys::{SQLITE_ERROR, sqlite3_malloc};
+use libsqlite3_sys::{SQLITE_ERROR, sqlite3, sqlite3_errmsg, sqlite3_malloc};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -33,6 +33,21 @@ impl SqliteError {
         match self {
             Self::Sqlite { code, .. } => *code,
             _ => SQLITE_ERROR,
+        }
+    }
+
+    /// # Safety
+    #[cold]
+    pub(crate) unsafe fn from_db(db: *mut sqlite3, operation: &'static str, code: i32) -> Self {
+        let message = unsafe {
+            CStr::from_ptr(sqlite3_errmsg(db))
+                .to_string_lossy()
+                .into_owned()
+        };
+        Self::Sqlite {
+            operation,
+            code,
+            message,
         }
     }
 

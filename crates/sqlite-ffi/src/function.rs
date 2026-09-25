@@ -1,11 +1,11 @@
 use std::{
-    ffi::{CStr, CString, c_char, c_int, c_void},
+    ffi::{CString, c_char, c_int, c_void},
     slice,
 };
 
 use libsqlite3_sys::{
-    SQLITE_OK, SQLITE_UTF8, sqlite3_context, sqlite3_create_function_v2, sqlite3_errmsg,
-    sqlite3_user_data, sqlite3_value,
+    SQLITE_OK, SQLITE_UTF8, sqlite3_context, sqlite3_create_function_v2, sqlite3_user_data,
+    sqlite3_value,
 };
 
 use crate::{Connection, Context, Value, error::SqliteError};
@@ -48,15 +48,8 @@ impl Connection {
         };
 
         if rc != SQLITE_OK {
-            let message = unsafe {
-                CStr::from_ptr(sqlite3_errmsg(self.conn.as_ptr()))
-                    .to_string_lossy()
-                    .into_owned()
-            };
-            return Err(SqliteError::Sqlite {
-                operation: "create function v2",
-                code: rc,
-                message,
+            return Err(unsafe {
+                SqliteError::from_db(self.conn.as_ptr(), "sqlite3_create_function", rc)
             });
         }
 
