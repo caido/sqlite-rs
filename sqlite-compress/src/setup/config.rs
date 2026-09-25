@@ -118,7 +118,8 @@ impl ColumnName {
         Self(name.to_string())
     }
 
-    /// Returns this column's decoded-view name for `table_name`.
+    /// Returns the column-specific name `__compress_decoded_<table>_<column>`;
+    /// setup creates the table-level `__compress_decoded_<table>` view instead.
     pub fn view_name(&self, table_name: &TableName) -> String {
         format!("{}_{}_{}", VIEW_SUFFIX, table_name.as_str(), self.as_str())
     }
@@ -136,7 +137,7 @@ impl Display for ColumnName {
     }
 }
 
-/// Converts a validated configuration name into a quoted SQL identifier.
+/// Converts a configuration name into a quoted SQL identifier.
 pub trait SqlIdent {
     fn as_str(&self) -> &str;
 
@@ -155,7 +156,7 @@ pub struct SetupConfig {
 impl SetupConfig {
     /// Iterates over every configured table and column pair.
     ///
-    /// Training and setup use this flattened order to apply the same policy to
+    /// Training uses this flattened order to apply the same policy to
     /// every configured column.
     pub fn iter_columns(&self) -> impl Iterator<Item = (&SetupTable, &SetupColumn)> {
         self.tables

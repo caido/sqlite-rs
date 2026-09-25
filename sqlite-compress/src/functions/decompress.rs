@@ -37,13 +37,15 @@ pub(crate) fn decompress_raw(
 /// `sqlite3_compress_init` registers this scalar function.
 /// The blob header selects the dictionary: dict id `0` is raw zstd, and any other id is loaded from `__compress_dicts` in `schema`.
 ///
+/// If the schema is not provided, it defaults to `main`.
+///
 /// ```sql
 /// SELECT decompress(body, 'main') AS body
 /// FROM requests;
 /// ```
 pub fn sqlite_decompress(context: Context, values: &[Value]) -> Result<(), SqliteError> {
     let blob = values[0].to_blob();
-    let schema = values[1].to_text()?;
+    let schema = values[1].to_text().unwrap_or("main");
 
     let (header, payload) = Header::parse(blob).map_err(|e| SqliteError::Message(e.to_string()))?;
 

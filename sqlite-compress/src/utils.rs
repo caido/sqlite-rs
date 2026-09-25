@@ -3,7 +3,7 @@
 /// Both components are quoted independently so an embedded identifier cannot
 /// change the qualified-name structure.
 pub fn quote_qualified(schema: &str, name: &str) -> String {
-    format!("\"{schema}\".\"{name}\"")
+    format!("{}.{}", quote_identifier(schema), quote_identifier(name))
 }
 
 /// Quotes one SQLite identifier, escaping embedded double quotes.
