@@ -1,14 +1,14 @@
 use std::{
-    ffi::{CStr, CString, c_char, c_int, c_void},
+    ffi::{c_char, c_int, c_void, CStr, CString},
     slice,
 };
 
 use libsqlite3_sys::{
-    SQLITE_OK, SQLITE_UTF8, sqlite3_context, sqlite3_create_function_v2, sqlite3_errmsg,
-    sqlite3_user_data, sqlite3_value,
+    sqlite3_context, sqlite3_create_function_v2, sqlite3_errmsg, sqlite3_user_data, sqlite3_value,
+    SQLITE_OK, SQLITE_UTF8,
 };
 
-use crate::{Connection, Context, Value, error::SqliteError};
+use crate::{error::SqliteError, Connection, Context, Value};
 
 type XFunc = Option<
     unsafe extern "C" fn(arg1: *mut sqlite3_context, arg2: c_int, arg3: *mut *mut sqlite3_value),
@@ -126,8 +126,8 @@ mod tests {
     use std::ptr;
 
     use libsqlite3_sys::{
-        SQLITE_ROW, sqlite3_close, sqlite3_column_int, sqlite3_finalize, sqlite3_open,
-        sqlite3_prepare_v2, sqlite3_result_int64, sqlite3_step,
+        sqlite3_close, sqlite3_column_int, sqlite3_finalize, sqlite3_open, sqlite3_prepare_v2,
+        sqlite3_result_int64, sqlite3_step, SQLITE_ROW,
     };
 
     use super::*;

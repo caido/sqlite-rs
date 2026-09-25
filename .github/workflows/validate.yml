@@ -42,7 +42,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [sqlite-compress]
+        component: [sqlite-compress, reglite]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6.0.2
@@ -64,7 +64,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [sqlite-compress]
+        component: [sqlite-compress, reglite]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6.0.2

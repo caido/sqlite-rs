@@ -1,9 +1,9 @@
 use std::{
-    ffi::{CString, c_char},
+    ffi::{c_char, CString},
     ptr,
 };
 
-use libsqlite3_sys::{SQLITE_ERROR, sqlite3_malloc};
+use libsqlite3_sys::{sqlite3_malloc, SQLITE_ERROR};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
