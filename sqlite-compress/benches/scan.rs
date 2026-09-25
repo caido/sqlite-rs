@@ -1,4 +1,4 @@
-use std::{hint::black_box, ptr, sync::Once};
+use std::{hint::black_box, iter::repeat_n, ptr, sync::Once};
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use libsqlite3_sys::{sqlite3, sqlite3_auto_extension, sqlite3_close, sqlite3_open, SQLITE_OK};
@@ -35,11 +35,18 @@ impl Drop for BenchDb {
     }
 }
 
-fn insert(conn: &ExtensionState, kind: &str, at: Option<usize>) {
-    const BODY_LEN: usize = 8 * 1024 * 1024;
+const BODY_LEN: usize = 8 * 1024 * 1024;
+
+fn needle(len: usize) -> String {
+    let mut s = String::from("NEEDLE");
+    s.extend(repeat_n('X', len - s.len()));
+    s
+}
+
+fn insert(conn: &ExtensionState, kind: &str, needle: &str, at: Option<usize>) {
     let mut body = vec![b'a'; BODY_LEN];
     if let Some(at) = at {
-        body[at..at + 6].copy_from_slice(b"NEEDLE");
+        body[at..at + needle.len()].copy_from_slice(needle.as_bytes());
     }
     conn.as_ref()
         .execute(
@@ -57,42 +64,48 @@ fn hit(conn: &ExtensionState, sql: &str) -> i64 {
 fn bench_scan(c: &mut Criterion) {
     let db = BenchDb::open();
     let conn = db.state();
+
     conn.as_ref()
         .batch_execute("CREATE TABLE t(id INTEGER PRIMARY KEY, data BLOB, kind TEXT)")
         .unwrap();
-    insert(&conn, "start", Some(0));
-    insert(&conn, "middle", Some(4 * 1024 * 1024));
-    insert(&conn, "end", Some(8 * 1024 * 1024 - 6));
-    insert(&conn, "absent", None);
 
     let mut group = c.benchmark_group("clike_vs_like");
     group.sample_size(10);
 
-    conn.as_ref()
-        .batch_execute("PRAGMA case_sensitive_like = ON")
-        .unwrap();
+    for len in [6, 64, 256, 1024] {
+        let needle = needle(len);
+        for (place, at) in [
+            ("start", Some(0)),
+            ("middle", Some(BODY_LEN / 2)),
+            ("end", Some(BODY_LEN - needle.len())),
+            ("absent", None),
+        ] {
+            insert(&conn, &format!("{place}-{len}"), &needle, at);
+        }
 
-    for (kind, pattern, expect) in [
-        ("start", "NEEDLE%", 1),
-        ("middle", "%NEEDLE%", 1),
-        ("end", "%NEEDLE", 1),
-        ("absent", "%ABSENT%", 0),
-    ] {
-        let like_sql = format!(
-            "SELECT decompress(data, 'main') LIKE '{pattern}' FROM t WHERE kind = '{kind}'"
-        );
-        let clike_sql = format!(
-            "SELECT clike('main', 't', 'data', id, '{pattern}') FROM t WHERE kind = '{kind}'"
-        );
-        assert_eq!(hit(&conn, &like_sql), expect);
-        assert_eq!(hit(&conn, &clike_sql), expect);
+        for (place, pattern, expect) in [
+            ("start", format!("{needle}%"), 1),
+            ("middle", format!("%{needle}%"), 1),
+            ("end", format!("%{needle}"), 1),
+            ("absent", format!("%{needle}%"), 0),
+        ] {
+            let kind = format!("{place}-{len}");
+            let like_sql = format!(
+                "SELECT decompress(data, 'main') LIKE '{pattern}' FROM t WHERE kind = '{kind}'"
+            );
+            let clike_sql = format!(
+                "SELECT clike('main', 't', 'data', id, '{pattern}') FROM t WHERE kind = '{kind}'"
+            );
+            assert_eq!(hit(&conn, &like_sql), expect, "{kind}");
+            assert_eq!(hit(&conn, &clike_sql), expect, "{kind}");
 
-        group.bench_function(format!("decompress-like-{kind}"), |b| {
-            b.iter(|| black_box(hit(&conn, &like_sql)))
-        });
-        group.bench_function(format!("clike-{kind}"), |b| {
-            b.iter(|| black_box(hit(&conn, &clike_sql)))
-        });
+            group.bench_function(format!("decompress-like-{place}-{len}"), |b| {
+                b.iter(|| black_box(hit(&conn, &like_sql)))
+            });
+            group.bench_function(format!("clike-{place}-{len}"), |b| {
+                b.iter(|| black_box(hit(&conn, &clike_sql)))
+            });
+        }
     }
 
     group.finish();
