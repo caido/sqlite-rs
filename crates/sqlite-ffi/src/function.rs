@@ -64,6 +64,11 @@ impl Connection {
     }
 }
 
+unsafe fn values_from_argv(argv: *mut *mut sqlite3_value, argc: usize) -> Vec<Value> {
+    let raw_values = unsafe { slice::from_raw_parts(argv, argc) };
+    raw_values.iter().copied().map(Value::from_raw).collect()
+}
+
 unsafe fn to_sqlite_func<F: ScalarFunction>(func: F) -> (*mut c_void, XFunc, XDestroy) {
     let boxed: *mut F = Box::into_raw(Box::new(func));
 
@@ -75,8 +80,7 @@ unsafe fn to_sqlite_func<F: ScalarFunction>(func: F) -> (*mut c_void, XFunc, XDe
         unsafe {
             let f = sqlite3_user_data(ctx).cast::<F>();
 
-            let raw_values = slice::from_raw_parts(argv, argc as usize);
-            let values: Vec<Value> = raw_values.iter().copied().map(Value::from_raw).collect();
+            let values = values_from_argv(argv, argc as usize);
 
             let context = Context::from_raw(ctx);
             if let Err(e) = (*f)(context, &values) {
@@ -129,6 +133,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn destroy_drops_scalar_callback() {
+        let (ptr, _call, destroy) =
+            unsafe { to_sqlite_func(|_context, _args| Ok::<(), SqliteError>(())) };
+        unsafe { destroy.unwrap()(ptr) };
+    }
+
+    #[test]
+    fn values_from_argv_reads_pointer_slice() {
+        let slot = std::ptr::NonNull::<sqlite3_value>::dangling().as_ptr();
+        let mut argv = [slot, slot];
+        let values = unsafe { values_from_argv(argv.as_mut_ptr(), argv.len()) };
+        assert_eq!(values.len(), 2);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
     fn registers_and_calls_scalar() {
         let mut db = ptr::null_mut();
         let rc = unsafe { sqlite3_open(c":memory:".as_ptr(), &mut db) };

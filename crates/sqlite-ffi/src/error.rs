@@ -52,10 +52,34 @@ impl SqliteError {
         let ptr = unsafe { sqlite3_malloc(bytes.len() as i32).cast::<c_char>() };
         if !ptr.is_null() {
             unsafe {
-                ptr::copy_nonoverlapping(bytes.as_ptr().cast(), ptr, bytes.len());
+                copy_cstr(bytes, ptr);
                 *pz_err_msg = ptr;
             }
         }
         code
+    }
+}
+
+unsafe fn copy_cstr(src: &[u8], dst: *mut c_char) {
+    unsafe { ptr::copy_nonoverlapping(src.as_ptr().cast(), dst, src.len()) };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn report_null_out_pointer_returns_code() {
+        let err = SqliteError::Message("x".into());
+        let code = unsafe { err.report(std::ptr::null_mut()) };
+        assert_eq!(code, err.code());
+    }
+
+    #[test]
+    fn copy_cstr_writes_bytes_and_nul() {
+        let src = b"hello\0";
+        let mut dst = vec![0u8; src.len()];
+        unsafe { copy_cstr(src, dst.as_mut_ptr().cast()) };
+        assert_eq!(dst, src);
     }
 }

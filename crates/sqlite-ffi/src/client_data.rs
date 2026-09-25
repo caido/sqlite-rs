@@ -13,7 +13,8 @@ impl Connection {
     pub fn get_client_data<'a, T>(&'a self, name: &str) -> Result<&'a T, SqliteError> {
         let c_name = CString::new(name)?;
 
-        let client = unsafe { get_client_data_raw(self.conn.as_ptr(), c_name.as_ptr()) };
+        let client: *mut c_void =
+            unsafe { get_client_data_raw(self.conn.as_ptr(), c_name.as_ptr()) };
 
         if client.is_null() {
             return Err(SqliteError::PointerNotValid(format!(
@@ -22,9 +23,7 @@ impl Connection {
             )));
         }
 
-        let client = client.cast::<T>();
-
-        let client = unsafe { client.as_ref() };
+        let client = unsafe { client_as_ref::<T>(client) };
 
         Ok(client.expect("can't cast"))
     }
@@ -48,6 +47,10 @@ impl Connection {
 
         Ok(())
     }
+}
+
+unsafe fn client_as_ref<'a, T>(client: *mut c_void) -> Option<&'a T> {
+    unsafe { client.cast::<T>().as_ref() }
 }
 
 unsafe fn to_sqlite_destroy<T>(p: *mut T) -> (*mut c_void, XDestroy) {
@@ -98,6 +101,37 @@ mod tests {
     }
 
     #[test]
+    fn destroy_drops_client_data_once() {
+        static DROPPED: AtomicBool = AtomicBool::new(false);
+
+        let (ptr, destroy) = unsafe {
+            to_sqlite_destroy(Box::into_raw(Box::new(Counter {
+                value: 7,
+                dropped: &DROPPED,
+            })))
+        };
+
+        assert!(!DROPPED.load(Ordering::SeqCst));
+        unsafe { destroy.unwrap()(ptr) };
+        assert!(DROPPED.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn destroy_ignores_null_pointer() {
+        let (_ptr, destroy) = unsafe { to_sqlite_destroy::<u32>(ptr::null_mut()) };
+        unsafe { destroy.unwrap()(ptr::null_mut()) };
+    }
+
+    #[test]
+    fn client_as_ref_reads_allocation() {
+        let ptr = Box::into_raw(Box::new(42u32)).cast::<c_void>();
+        let got = unsafe { client_as_ref::<u32>(ptr) }.unwrap();
+        assert_eq!(*got, 42);
+        unsafe { drop(Box::from_raw(ptr.cast::<u32>())) };
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
     fn set_then_get_returns_same_value() {
         static DROPPED: AtomicBool = AtomicBool::new(false);
 
@@ -123,6 +157,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn get_missing_name_is_error() {
         let mut db = ptr::null_mut();
         assert_eq!(unsafe { sqlite3_open(c":memory:".as_ptr(), &mut db) }, 0);

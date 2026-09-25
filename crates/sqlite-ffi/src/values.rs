@@ -21,11 +21,7 @@ impl Value {
         unsafe {
             let ptr = sqlite3_value_blob(self.value.as_ptr());
             let len = sqlite3_value_bytes(self.value.as_ptr()) as usize;
-            if ptr.is_null() {
-                &[]
-            } else {
-                slice::from_raw_parts(ptr.cast(), len)
-            }
+            bytes_from_raw(ptr.cast(), len)
         }
     }
 
@@ -40,8 +36,34 @@ impl Value {
             if ptr.is_null() {
                 return Ok("");
             }
-            let bytes = slice::from_raw_parts(ptr.cast(), len);
+            let bytes = bytes_from_raw(ptr.cast(), len);
             std::str::from_utf8(bytes).map_err(Into::into)
         }
+    }
+}
+
+pub(super) unsafe fn bytes_from_raw<'a>(ptr: *const u8, len: usize) -> &'a [u8] {
+    if ptr.is_null() {
+        &[]
+    } else {
+        unsafe { slice::from_raw_parts(ptr, len) }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bytes_from_raw_reads_buffer() {
+        let buf = b"abc";
+        let bytes = unsafe { bytes_from_raw(buf.as_ptr(), buf.len()) };
+        assert_eq!(bytes, b"abc");
+    }
+
+    #[test]
+    fn bytes_from_raw_null_is_empty() {
+        let bytes = unsafe { bytes_from_raw(std::ptr::null(), 0) };
+        assert!(bytes.is_empty());
     }
 }
