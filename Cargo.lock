@@ -71,7 +71,7 @@ checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 [[package]]
 name = "libsqlite3-sys"
 version = "0.38.1"
-source = "git+https://github.com/rusqlite/rusqlite#726c921a350591abffdc99ac8d8a5bea21fbb208"
+source = "git+https://github.com/rusqlite/rusqlite?rev=91f876c#91f876c80114122670f455190d03c81d1f78b0af"
 dependencies = [
  "cc",
  "pkg-config",
@@ -199,7 +199,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "reglite"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "libsqlite3-sys",
  "regex",

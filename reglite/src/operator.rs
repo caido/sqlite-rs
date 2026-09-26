@@ -19,16 +19,20 @@ fn match_regexp(ctx: &mut Context, values: &[Value]) -> Result<(), RegexpError> 
         _ => return Err(RegexpError::InvalidContentType),
     };
 
-    let matched = {
-        let aux = ctx.aux::<Regex>(0);
-        if aux.get().is_err() {
+    let aux = ctx.aux::<Regex>(0);
+    let matched = match aux.get() {
+        Ok(r) => r.is_match(content),
+        Err(_) => {
             let pattern = values
                 .first()
                 .ok_or(RegexpError::MissingPattern)?
                 .to_text()?;
-            aux.set(Regex::new(pattern)?);
+
+            let r = Regex::new(pattern)?;
+            let matched = r.is_match(content);
+            aux.set(r);
+            matched
         }
-        aux.get().expect("regex just stored").is_match(content)
     };
 
     ctx.result_bool(matched);
