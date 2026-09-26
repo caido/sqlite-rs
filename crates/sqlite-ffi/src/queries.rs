@@ -1,15 +1,15 @@
 use std::ffi::CString;
 
 use libsqlite3_sys::{
-    sqlite3, sqlite3_bind_blob, sqlite3_bind_double, sqlite3_bind_int64, sqlite3_bind_null,
-    sqlite3_bind_text, sqlite3_column_blob, sqlite3_column_bytes, sqlite3_column_count,
-    sqlite3_column_double, sqlite3_column_int64, sqlite3_column_text, sqlite3_column_type,
-    sqlite3_exec, sqlite3_finalize, sqlite3_prepare_v2, sqlite3_step, sqlite3_stmt, SQLITE_BLOB,
-    SQLITE_DONE, SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL, SQLITE_OK, SQLITE_ROW, SQLITE_TEXT,
-    SQLITE_TRANSIENT,
+    SQLITE_BLOB, SQLITE_DONE, SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL, SQLITE_OK, SQLITE_ROW,
+    SQLITE_TEXT, SQLITE_TRANSIENT, sqlite3, sqlite3_bind_blob, sqlite3_bind_double,
+    sqlite3_bind_int64, sqlite3_bind_null, sqlite3_bind_text, sqlite3_column_blob,
+    sqlite3_column_bytes, sqlite3_column_count, sqlite3_column_double, sqlite3_column_int64,
+    sqlite3_column_text, sqlite3_column_type, sqlite3_exec, sqlite3_finalize, sqlite3_prepare_v2,
+    sqlite3_step, sqlite3_stmt,
 };
 
-use crate::{values::bytes_from_raw, Connection, SqliteError};
+use crate::{Connection, SqliteError, values::bytes_from_raw};
 
 impl Connection {
     pub fn query(&self, sql: &str, params: &[SqlValue]) -> Result<Vec<Vec<SqlValue>>, SqliteError> {

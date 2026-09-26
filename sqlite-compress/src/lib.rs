@@ -7,11 +7,11 @@ mod utils;
 
 pub const DEFAULT_RETRAIN_GROWTH: usize = 5000;
 
-pub use dict::{errors::DictError, train_all, train_by_column, ColumnKey, DictId};
-pub use functions::{CodecError, Header, DEFAULT_LEVEL};
+pub use dict::{ColumnKey, DictId, errors::DictError, train_all, train_by_column};
+pub use functions::{CodecError, DEFAULT_LEVEL, Header};
 pub use setup::{
-    setup, ColumnName, SchemaName, SetupColumn, SetupConfig, SetupConnection, SetupError,
-    SetupTable, TableName,
+    ColumnName, SchemaName, SetupColumn, SetupConfig, SetupConnection, SetupError, SetupTable,
+    TableName, setup,
 };
 use sqlite_ffi::{Connection, SqliteError};
 use sqlite_ffi_macros::sqlite_entrypoint;

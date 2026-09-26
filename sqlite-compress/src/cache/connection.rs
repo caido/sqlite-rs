@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use zstd::dict::{DecoderDictionary, EncoderDictionary};
 
-use crate::{cache::lru::DictLru, ColumnKey, DictId};
+use crate::{ColumnKey, DictId, cache::lru::DictLru};
 /// Per-connection cache of prepared zstd dictionaries and the current dict id per column.
 ///
 /// `encoders` and `decoders` are independent LRUs keyed by [`DictKey`] (schema + dict id).

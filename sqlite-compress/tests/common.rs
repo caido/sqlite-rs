@@ -1,7 +1,7 @@
 use std::{ptr, sync::Once};
 
-use libsqlite3_sys::{sqlite3, sqlite3_auto_extension, sqlite3_close, sqlite3_open, SQLITE_OK};
-use sqlite_compress::{sqlite3_compress_init, ExtensionState, SetupConnection};
+use libsqlite3_sys::{SQLITE_OK, sqlite3, sqlite3_auto_extension, sqlite3_close, sqlite3_open};
+use sqlite_compress::{ExtensionState, SetupConnection, sqlite3_compress_init};
 
 #[allow(dead_code)]
 pub const DEFAULT_MIN_SAMPLES: usize = 1000;

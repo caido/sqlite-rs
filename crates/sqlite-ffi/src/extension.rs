@@ -1,6 +1,6 @@
-use libsqlite3_sys::{rusqlite_extension_init2, sqlite3_api_routines, InitError, SQLITE_ERROR};
+use libsqlite3_sys::{InitError, SQLITE_ERROR, rusqlite_extension_init2, sqlite3_api_routines};
 
-use crate::{error::SqliteError, Connection};
+use crate::{Connection, error::SqliteError};
 
 impl Connection {
     /// # Safety

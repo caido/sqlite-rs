@@ -1,11 +1,11 @@
-use std::ffi::{c_char, c_void, CString};
+use std::ffi::{CString, c_char, c_void};
 
-use libsqlite3_sys::{sqlite3, sqlite3_get_clientdata, sqlite3_set_clientdata, SQLITE_OK};
+use libsqlite3_sys::{SQLITE_OK, sqlite3, sqlite3_get_clientdata, sqlite3_set_clientdata};
 
 use crate::{
-    error::SqliteError,
-    utils::{ptr_as_ref, to_sqlite_destroy, XDestroy},
     Connection,
+    error::SqliteError,
+    utils::{XDestroy, ptr_as_ref, to_sqlite_destroy},
 };
 
 impl Connection {

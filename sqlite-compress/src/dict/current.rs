@@ -1,6 +1,6 @@
-use sqlite_ffi::{first_value, Connection, SqlValue};
+use sqlite_ffi::{Connection, SqlValue, first_value};
 
-use crate::{dict::DICT_TABLE_NAME, utils::quote_qualified, ColumnKey, DictError, DictId};
+use crate::{ColumnKey, DictError, DictId, dict::DICT_TABLE_NAME, utils::quote_qualified};
 
 /// Read the current (latest inserted) dict id for `column` from `__compress_dicts`.
 pub(crate) fn read_current_id<C: AsRef<Connection>>(

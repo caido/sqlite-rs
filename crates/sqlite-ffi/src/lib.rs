@@ -12,5 +12,5 @@ mod values;
 pub use connection::Connection;
 pub use context::{Aux, Context};
 pub use error::SqliteError;
-pub use queries::{column_texts, first_value, sample_bytes, SqlValue};
+pub use queries::{SqlValue, column_texts, first_value, sample_bytes};
 pub use values::{Value, ValueType};

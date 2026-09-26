@@ -3,8 +3,8 @@ use std::{ffi::c_void, marker::PhantomData, ptr::NonNull};
 use libsqlite3_sys::{sqlite3_context, sqlite3_get_auxdata, sqlite3_set_auxdata};
 
 use crate::{
-    utils::{ptr_as_ref, to_sqlite_destroy, XDestroy},
     SqliteError,
+    utils::{XDestroy, ptr_as_ref, to_sqlite_destroy},
 };
 
 pub struct Aux<'a, T> {

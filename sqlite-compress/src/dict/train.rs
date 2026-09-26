@@ -1,16 +1,16 @@
-use sqlite_ffi::{first_value, sample_bytes, Connection, SqlValue};
+use sqlite_ffi::{Connection, SqlValue, first_value, sample_bytes};
 
 use crate::{
+    Header, SetupColumn, SetupTable,
     cache::{get_decoder_in_cache, insert_into_caches},
     dict::{
-        types::{ColumnKey, DictId},
         DICT_TABLE_NAME,
+        types::{ColumnKey, DictId},
     },
-    functions::{decompress_raw, decompress_with_decoder, CodecError, Level},
+    functions::{CodecError, Level, decompress_raw, decompress_with_decoder},
     setup::{SetupConfig, SetupConnection, SetupError, SqlIdent},
     state::ExtensionState,
     utils::quote_qualified,
-    Header, SetupColumn, SetupTable,
 };
 
 const SAMPLE_BATCH_SIZE: usize = 64;
