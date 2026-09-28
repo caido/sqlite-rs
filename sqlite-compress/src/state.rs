@@ -1,10 +1,16 @@
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    sync::{Arc, LazyLock},
+};
 
 use libsqlite3_sys::sqlite3;
 use parking_lot::Mutex;
 use sqlite_ffi::{Connection, Context, SqliteError};
 
 use crate::cache::DictCache;
+
+static CACHES: LazyLock<Mutex<HashMap<usize, Cache>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Per-connection state for the extension: the SQLite connection and its dictionary cache.
 ///
@@ -32,25 +38,36 @@ impl AsRef<Connection> for ExtensionState {
 }
 
 impl ExtensionState {
-    const NAME: &str = "sqlite-compress";
-
     pub fn attach(connection: &Connection) -> Result<(), SqliteError> {
         let cache = Cache(Arc::new(Mutex::new(DictCache::new())));
+        CACHES.lock().insert(connection.as_ptr() as usize, cache);
 
-        connection.set_client_data(Self::NAME, cache)
+        Ok(())
+    }
+
+    pub fn detach(connection: &Connection) {
+        CACHES.lock().remove(&(connection.as_ptr() as usize));
+    }
+
+    fn lookup(db: *mut sqlite3) -> Result<Self, SqliteError> {
+        let cache = CACHES
+            .lock()
+            .get(&(db as usize))
+            .cloned()
+            .ok_or_else(|| SqliteError::PointerNotValid("compress cache".into()))?;
+
+        Ok(Self {
+            connection: Connection::from_raw(db),
+            cache,
+        })
     }
 
     pub fn from_db(db: *mut sqlite3) -> Result<Self, SqliteError> {
-        let connection = Connection::from_raw(db);
-        let cache = connection.get_client_data::<Cache>(Self::NAME)?.clone();
-
-        Ok(Self { cache, connection })
+        Self::lookup(db)
     }
 
     pub fn from_context(context: &Context) -> Result<Self, SqliteError> {
         let connection = Connection::from_context(context)?;
-        let cache = connection.get_client_data::<Cache>(Self::NAME)?.clone();
-
-        Ok(Self { cache, connection })
+        Self::lookup(connection.as_ptr())
     }
 }
