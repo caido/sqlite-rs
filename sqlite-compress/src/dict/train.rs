@@ -13,8 +13,6 @@ use crate::{
     Header, SetupColumn, SetupTable,
 };
 
-const SAMPLE_BATCH_SIZE: usize = 64;
-
 /// Train one dictionary for every column in `config`.
 ///
 /// Each column is handled by [`train_by_column`]. A column is skipped, and omitted from the
@@ -232,44 +230,55 @@ fn build_dictionary(
     let mut sizes = Vec::new();
     let mut remaining = max_samples;
 
-    while remaining > 0 {
-        let batch_limit = remaining.min(SAMPLE_BATCH_SIZE);
+    let max_rowid = state
+        .connection
+        .query(
+            &format!("SELECT COALESCE(MAX(rowid), 0) FROM {table_name}"),
+            &[],
+        )
+        .map_err(SetupError::from_conn)?;
+
+    let max_rowid = first_value(&max_rowid)
+        .and_then(SqlValue::as_i64)
+        .unwrap_or(0);
+
+    if max_rowid <= 0 {
+        return Err(SetupError::DictTrain(
+            "no non-empty samples available".to_string(),
+        ));
+    }
+
+    let max_attempts = max_samples.saturating_mul(8).max(64);
+    let mut attempts = 0;
+
+    while remaining > 0 && attempts < max_attempts {
+        attempts += 1;
 
         let rows = state
             .connection
             .query(
                 &format!(
                     "SELECT {column_name} AS value FROM {table_name} \
-                 WHERE {column_name} IS NOT NULL AND length({column_name}) > 0 \
-                 ORDER BY RANDOM() \
-                 LIMIT ?1"
+                 WHERE rowid >= (abs(random()) % ?1) + 1 \
+                   AND {column_name} IS NOT NULL \
+                   AND length({column_name}) > 0 \
+                 ORDER BY rowid \
+                 LIMIT 1"
                 ),
-                &[SqlValue::Integer(batch_limit as i64)],
+                &[SqlValue::Integer(max_rowid)],
             )
             .map_err(SetupError::from_conn)?;
 
-        if rows.is_empty() {
-            break;
-        }
+        let Some(blob) = rows.first().and_then(|r| r.first()).and_then(sample_bytes) else {
+            continue;
+        };
 
-        let batch_len = rows.len();
-        for row in &rows {
-            let Some(blob) = row.first().and_then(sample_bytes) else {
-                continue;
-            };
+        let sample = decode_sample(state, &blob, schema)
+            .map_err(|e| SetupError::DictTrain(format!("failed to decode training sample: {e}")))?;
 
-            let sample = decode_sample(state, &blob, schema).map_err(|e| {
-                SetupError::DictTrain(format!("failed to decode training sample: {e}"))
-            })?;
-
-            corpus.extend_from_slice(&sample);
-            sizes.push(sample.len());
-        }
-
-        remaining = remaining.saturating_sub(batch_len);
-        if batch_len < batch_limit {
-            break;
-        }
+        corpus.extend_from_slice(&sample);
+        sizes.push(sample.len());
+        remaining -= 1;
     }
 
     if sizes.is_empty() {
