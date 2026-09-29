@@ -14,14 +14,11 @@ We first tried to fork it to adapt it to our needs, but it proved difficult sinc
 This is intended to be statically compiled and loaded at runtime in your application:
 
 ```rust
-use libsqlite3_sys::sqlite3_auto_extension;
 use reglite::sqlite3_reglite_init;
+use sqlite_ffi::register_auto_extension;
 
 fn main() {
-    unsafe {
-        let ext_init = mem::transmute(sqlite3_reglite_init as *const ());
-        sqlite3_auto_extension(Some(ext_init))
-    }
+    register_auto_extension(sqlite3_reglite_init).unwrap();
 
     // You can now use `regexp` in your queries
 }
