@@ -70,6 +70,42 @@ fn ensure_column_exist<C: AsRef<Connection>>(
     Ok(())
 }
 
+fn ensure_name_is_not_conflicting<C: AsRef<Connection>>(
+    connection: &C,
+    table: &SetupTable,
+) -> Result<(), SetupError> {
+    let connection = connection.as_ref();
+
+    let view_name = table.decoded_view_name();
+    if view_name == table.name.as_str() {
+        return Err(SetupError::ViewNameConflict {
+            name: view_name,
+            existing_type: "table".to_string(),
+        });
+    }
+
+    let rows = connection
+        .query(
+            &format!(
+                "SELECT type FROM {schema}.sqlite_master WHERE name = ?1",
+                schema = table.schema
+            ),
+            &[SqlValue::Text(view_name.clone())],
+        )
+        .map_err(SetupError::from_conn)?;
+
+    if let Some(existing_type) = first_value(&rows).and_then(SqlValue::as_text)
+        && existing_type != "view"
+    {
+        return Err(SetupError::ViewNameConflict {
+            name: view_name,
+            existing_type: existing_type.to_string(),
+        });
+    }
+
+    Ok(())
+}
+
 fn table_column_names(
     db: &Connection,
     schema: &SchemaName,
@@ -115,6 +151,8 @@ fn ensure_table_view_exists<C: AsRef<Connection>>(
     connection: &C,
     table: &SetupTable,
 ) -> Result<(), SetupError> {
+    ensure_name_is_not_conflicting(connection, table)?;
+
     let connection = connection.as_ref();
 
     let table_columns = table_column_names(connection, &table.schema, &table.name)?;

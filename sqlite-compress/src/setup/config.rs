@@ -31,6 +31,20 @@ impl SchemaName {
     }
 }
 
+/// A view name paired with a schema by [`SetupTable`].
+#[derive(Debug, Clone)]
+pub struct ViewName(String);
+
+impl ViewName {
+    pub fn new(name: &str) -> Self {
+        Self(name.to_string())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// A table name paired with a schema by [`SetupTable`].
 #[derive(Debug, Clone)]
 pub struct TableName(String);
@@ -185,11 +199,17 @@ pub struct SetupTable {
     pub name: TableName,
     pub schema: SchemaName,
     pub columns: Vec<SetupColumn>,
+    pub view: Option<ViewName>,
 }
 
 impl SetupTable {
-    pub fn as_qualified_decoded_view_name(&self) -> String {
-        quote_qualified(self.schema.as_str(), &self.name.decoded_view_name())
+    pub fn new(schema: SchemaName, name: TableName, columns: Vec<SetupColumn>) -> Self {
+        Self {
+            schema,
+            name,
+            columns,
+            view: None,
+        }
     }
 
     pub fn compressed_column_names(&self) -> std::collections::HashSet<&str> {
@@ -213,6 +233,22 @@ impl SetupTable {
             self.schema.as_str(),
             column_name.view_name(&self.name).as_str(),
         )
+    }
+
+    pub fn decoded_view_name(&self) -> String {
+        match &self.view {
+            Some(view) => view.as_str().to_string(),
+            None => self.name.decoded_view_name(),
+        }
+    }
+
+    pub fn as_qualified_decoded_view_name(&self) -> String {
+        quote_qualified(self.schema.as_str(), &self.decoded_view_name())
+    }
+
+    pub fn with_view(mut self, view: &str) -> Self {
+        self.view = Some(ViewName::new(view));
+        self
     }
 }
 
