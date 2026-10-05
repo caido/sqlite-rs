@@ -117,7 +117,7 @@ pub(super) fn init_trigger(state: &ExtensionState, config: &SetupConfig) -> Resu
     let connection = state.as_ref();
 
     for table in &config.tables {
-        if !table.writable {
+        if !table.has_trigger {
             continue;
         }
 
