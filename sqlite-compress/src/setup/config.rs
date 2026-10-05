@@ -200,6 +200,7 @@ pub struct SetupTable {
     pub schema: SchemaName,
     pub columns: Vec<SetupColumn>,
     pub view: Option<ViewName>,
+    pub writable: bool,
 }
 
 impl SetupTable {
@@ -209,6 +210,7 @@ impl SetupTable {
             name,
             columns,
             view: None,
+            writable: false,
         }
     }
 
@@ -249,6 +251,15 @@ impl SetupTable {
     pub fn with_view(mut self, view: &str) -> Self {
         self.view = Some(ViewName::new(view));
         self
+    }
+
+    pub fn with_writable_view(mut self) -> Self {
+        self.writable = true;
+        self
+    }
+
+    pub fn insert_trigger_name(&self) -> String {
+        format!("{}_insert", self.decoded_view_name())
     }
 }
 

@@ -384,7 +384,7 @@ fn setup_rejects_view_equal_to_table_name() {
     let err = setup(&db, &config).unwrap_err();
     assert!(matches!(
         err,
-        SetupError::ViewNameConflict { name, existing_type }
+        SetupError::NameConflict { name, existing_type }
             if name == "requests_raw" && existing_type == "table"
     ));
 
@@ -435,7 +435,7 @@ fn setup_rejects_table_occupying_view_name() {
     let err = setup(&db, &config).unwrap_err();
     assert!(matches!(
         err,
-        SetupError::ViewNameConflict { name, existing_type }
+        SetupError::NameConflict { name, existing_type }
             if name == "requests_raw" && existing_type == "table"
     ));
 }
