@@ -1,6 +1,6 @@
 use sqlite_compress::{
-    setup, SchemaName, SetupColumn, SetupConfig, SetupTable, TableName, DEFAULT_LEVEL,
-    DEFAULT_RETRAIN_GROWTH,
+    DEFAULT_LEVEL, DEFAULT_RETRAIN_GROWTH, SchemaName, SetupColumn, SetupConfig, SetupTable,
+    TableName, setup,
 };
 mod common;
 use common::{DEFAULT_MAX_SAMPLES, DEFAULT_MIN_SAMPLES};

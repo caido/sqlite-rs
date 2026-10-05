@@ -1,5 +1,5 @@
 [package]
-name = "sqlite-compress"
+name = "reglite"
 authors = ["Caido Labs Inc. <dev@caido.io>"]
 repository = "https://github.com/caido/sqlite-rs"
 license = "MIT"
@@ -7,19 +7,18 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-zstd = { version = "0.13", features = ["zdict_builder"] }
-parking_lot = "0.12"
-zerocopy = { version = "0.8", features = ["derive"] }
-thiserror = { workspace = true }
 libsqlite3-sys = { workspace = true }
+regex = "1"
 sqlite-ffi = { workspace = true }
 sqlite-ffi-macros = { workspace = true }
+thiserror = { workspace = true }
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["bundled"]
+default = ["bundled","ignore-invalid"]
+ignore-invalid = []
 bundled = [
     "sqlite-ffi/bundled",
     "libsqlite3-sys/bundled",

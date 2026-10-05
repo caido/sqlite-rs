@@ -1,4 +1,4 @@
-use zerocopy::{little_endian::U32, FromBytes, Immutable, IntoBytes, KnownLayout, TryFromBytes};
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, TryFromBytes, little_endian::U32};
 
 use crate::{dict::DictId, functions::errors::CodecError};
 

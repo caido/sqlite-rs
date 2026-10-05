@@ -2,9 +2,11 @@ use std::ffi::{CString, c_char, c_void};
 
 use libsqlite3_sys::{SQLITE_OK, sqlite3, sqlite3_get_clientdata, sqlite3_set_clientdata};
 
-use crate::{Connection, error::SqliteError};
-
-type XDestroy = Option<unsafe extern "C" fn(*mut c_void)>;
+use crate::{
+    Connection,
+    error::SqliteError,
+    utils::{XDestroy, ptr_as_ref, to_sqlite_destroy},
+};
 
 impl Connection {
     /// # Panics
@@ -13,8 +15,7 @@ impl Connection {
     pub fn get_client_data<'a, T>(&'a self, name: &str) -> Result<&'a T, SqliteError> {
         let c_name = CString::new(name)?;
 
-        let client: *mut c_void =
-            unsafe { get_client_data_raw(self.conn.as_ptr(), c_name.as_ptr()) };
+        let client = unsafe { get_client_data_raw(self.conn.as_ptr(), c_name.as_ptr()) };
 
         if client.is_null() {
             return Err(SqliteError::PointerNotValid(format!(
@@ -23,7 +24,7 @@ impl Connection {
             )));
         }
 
-        let client = unsafe { client_as_ref::<T>(client) };
+        let client = unsafe { ptr_as_ref::<T>(client) };
 
         Ok(client.expect("can't cast"))
     }
@@ -47,22 +48,6 @@ impl Connection {
 
         Ok(())
     }
-}
-
-unsafe fn client_as_ref<'a, T>(client: *mut c_void) -> Option<&'a T> {
-    unsafe { client.cast::<T>().as_ref() }
-}
-
-unsafe fn to_sqlite_destroy<T>(p: *mut T) -> (*mut c_void, XDestroy) {
-    unsafe extern "C" fn destroy<T>(p: *mut c_void) {
-        if !p.is_null() {
-            unsafe {
-                drop(Box::from_raw(p.cast::<T>()));
-            }
-        }
-    }
-
-    (p.cast(), Some(destroy::<T>))
 }
 
 unsafe fn get_client_data_raw(db: *mut sqlite3, name: *const c_char) -> *mut c_void {
@@ -120,14 +105,6 @@ mod tests {
     fn destroy_ignores_null_pointer() {
         let (_ptr, destroy) = unsafe { to_sqlite_destroy::<u32>(ptr::null_mut()) };
         unsafe { destroy.unwrap()(ptr::null_mut()) };
-    }
-
-    #[test]
-    fn client_as_ref_reads_allocation() {
-        let ptr = Box::into_raw(Box::new(42u32)).cast::<c_void>();
-        let got = unsafe { client_as_ref::<u32>(ptr) }.unwrap();
-        assert_eq!(*got, 42);
-        unsafe { drop(Box::from_raw(ptr.cast::<u32>())) };
     }
 
     #[test]

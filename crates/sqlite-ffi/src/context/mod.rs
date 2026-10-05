@@ -1,6 +1,12 @@
-use std::{ffi::c_void, ptr::NonNull};
+mod aux;
 
-use libsqlite3_sys::{sqlite3_context, sqlite3_result_blob, sqlite3_result_error};
+use std::{ffi::c_void, marker::PhantomData, ptr::NonNull};
+
+use libsqlite3_sys::{
+    sqlite3_context, sqlite3_result_blob, sqlite3_result_error, sqlite3_result_int64,
+};
+
+pub use crate::context::aux::Aux;
 
 pub struct Context {
     pub(crate) ctx: NonNull<sqlite3_context>,
@@ -10,6 +16,14 @@ impl Context {
     pub fn from_raw(ctx: *mut sqlite3_context) -> Self {
         Self {
             ctx: NonNull::new(ctx).expect("context pointer is not valid"),
+        }
+    }
+
+    pub fn aux<T>(&mut self, arg: i32) -> Aux<'_, T> {
+        Aux {
+            ctx: self.ctx,
+            arg,
+            _lifetime: PhantomData,
         }
     }
 
@@ -23,6 +37,12 @@ impl Context {
         }
     }
 
+    pub fn result_bool(&self, bool: bool) {
+        unsafe {
+            result_int_raw(self.ctx.as_ptr(), if bool { 1 } else { 0 });
+        }
+    }
+
     pub fn result_error(&self, error: &str) {
         unsafe {
             sqlite3_result_error(self.ctx.as_ptr(), error.as_ptr().cast(), error.len() as i32);
@@ -33,5 +53,11 @@ impl Context {
 unsafe fn result_blob_raw(context: *mut sqlite3_context, blob: *const c_void, size: i32) {
     unsafe {
         sqlite3_result_blob(context, blob, size, libsqlite3_sys::SQLITE_TRANSIENT());
+    }
+}
+
+unsafe fn result_int_raw(context: *mut sqlite3_context, value: i64) {
+    unsafe {
+        sqlite3_result_int64(context, value);
     }
 }

@@ -1,13 +1,13 @@
-use sqlite_ffi::{column_texts, first_value, Connection, SqlValue};
+use sqlite_ffi::{Connection, SqlValue, column_texts, first_value};
 
 use crate::{
+    SetupTable,
     setup::{
-        config::{ColumnName, SchemaName, TableName},
         SetupConfig, SetupError, SqlIdent,
+        config::{ColumnName, SchemaName, TableName},
     },
     state::ExtensionState,
     utils::{quote_identifier, quote_literal},
-    SetupTable,
 };
 
 /// Doing the check if the table exists in the database.

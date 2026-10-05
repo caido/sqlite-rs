@@ -4,13 +4,13 @@ use sqlite_ffi::{Context, SqliteError, Value};
 use zstd::bulk::Decompressor;
 
 use crate::{
+    DictError, DictId,
     cache::get_decoder_in_cache,
     functions::{
         errors::CodecError::{self},
         header::Header,
     },
     state::ExtensionState,
-    DictError, DictId,
 };
 
 pub(crate) fn decompress_with_decoder(

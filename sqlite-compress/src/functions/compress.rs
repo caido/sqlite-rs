@@ -3,8 +3,8 @@ use zstd::bulk::Compressor;
 
 use crate::{
     cache::get_encoder_in_cache,
-    dict::{errors::DictError, ColumnKey, DictId},
-    functions::{errors::CodecError, header::wrap, types::Level, DEFAULT_LEVEL},
+    dict::{ColumnKey, DictId, errors::DictError},
+    functions::{DEFAULT_LEVEL, errors::CodecError, header::wrap, types::Level},
     state::ExtensionState,
 };
 

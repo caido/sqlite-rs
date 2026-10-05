@@ -1,11 +1,11 @@
 use sqlite_compress::{
-    setup, train_all, train_by_column, ExtensionState, Header, SchemaName, SetupColumn,
-    SetupConfig, SetupTable, TableName, DEFAULT_LEVEL, DEFAULT_RETRAIN_GROWTH,
+    DEFAULT_LEVEL, DEFAULT_RETRAIN_GROWTH, ExtensionState, Header, SchemaName, SetupColumn,
+    SetupConfig, SetupTable, TableName, setup, train_all, train_by_column,
 };
 
 mod common;
 use common::DEFAULT_MAX_SAMPLES;
-use sqlite_ffi::{first_value, SqlValue};
+use sqlite_ffi::{SqlValue, first_value};
 
 pub fn compress_blob(state: &ExtensionState, data: &[u8]) -> Vec<u8> {
     let rows = state

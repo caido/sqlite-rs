@@ -3,10 +3,10 @@ use std::sync::Arc;
 use zstd::dict::{DecoderDictionary, EncoderDictionary};
 
 use crate::{
-    dict::{get_raw_dict, read_current_id, DictKey},
+    Cache, ColumnKey, DictError, DictId,
+    dict::{DictKey, get_raw_dict, read_current_id},
     functions::Level,
     state::ExtensionState,
-    Cache, ColumnKey, DictError, DictId,
 };
 
 /// Return the prepared zstd encoder for `(schema, dict_id)`, loading it from `__compress_dicts` and caching it on a miss.
@@ -111,7 +111,7 @@ pub(crate) fn insert_into_caches(
 mod tests {
     use std::{ptr, sync::Arc};
 
-    use libsqlite3_sys::{sqlite3, sqlite3_auto_extension, sqlite3_close, sqlite3_open, SQLITE_OK};
+    use libsqlite3_sys::{SQLITE_OK, sqlite3, sqlite3_auto_extension, sqlite3_close, sqlite3_open};
     use parking_lot::Once;
     use sqlite_ffi::{SqlValue, SqliteError};
     use zstd::{
@@ -121,7 +121,7 @@ mod tests {
 
     use super::{get_decoder_in_cache, get_encoder_in_cache};
     use crate::{
-        dict::DictId, sqlite3_compress_init, ExtensionState, SetupConnection, DEFAULT_LEVEL,
+        DEFAULT_LEVEL, ExtensionState, SetupConnection, dict::DictId, sqlite3_compress_init,
     };
 
     const SCHEMA: &str = "main";

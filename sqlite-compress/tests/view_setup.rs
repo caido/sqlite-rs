@@ -1,10 +1,10 @@
 use sqlite_compress::{
-    setup, SchemaName, SetupColumn, SetupConfig, SetupError, SetupTable, TableName, DEFAULT_LEVEL,
-    DEFAULT_RETRAIN_GROWTH,
+    DEFAULT_LEVEL, DEFAULT_RETRAIN_GROWTH, SchemaName, SetupColumn, SetupConfig, SetupError,
+    SetupTable, TableName, setup,
 };
 mod common;
 use common::{DEFAULT_MAX_SAMPLES, DEFAULT_MIN_SAMPLES};
-use sqlite_ffi::{first_value, SqlValue};
+use sqlite_ffi::{SqlValue, first_value};
 
 fn invalid_config(column: SetupColumn) -> SetupConfig {
     SetupConfig {
