@@ -13,6 +13,8 @@ use crate::{
     Header, SetupColumn, SetupTable,
 };
 
+const TARGET_ROUNDS: usize = 10;
+
 /// Train one dictionary for every column in `config`.
 ///
 /// Each column is handled by [`train_by_column`]. A column is skipped, and omitted from the
@@ -215,6 +217,17 @@ fn has_retrain_required<C: AsRef<Connection>>(
     Ok(available >= last + retrain_growth as i64)
 }
 
+/// Samples fetched per random query. Scales with `max_samples` so we keep
+/// roughly ~10 rounds.
+fn sample_batch_size(max_samples: usize) -> usize {
+    const MIN_BATCH: usize = 1;
+    const MAX_BATCH: usize = 10_000;
+
+    (max_samples / TARGET_ROUNDS)
+        .clamp(MIN_BATCH, MAX_BATCH)
+        .min(max_samples.max(1))
+}
+
 /// Build the dictionary from the samples.
 /// It is done by collecting random samples from the tables, and building the dictionary.
 /// Using stream approach to avoid loading all the samples into memory.
@@ -248,37 +261,46 @@ fn build_dictionary(
         ));
     }
 
-    let max_attempts = max_samples.saturating_mul(8).max(64);
     let mut attempts = 0;
+    let batch = sample_batch_size(max_samples);
+    let max_attempts = TARGET_ROUNDS.saturating_mul(4).max(8);
 
     while remaining > 0 && attempts < max_attempts {
         attempts += 1;
 
-        let rows = state
-            .connection
-            .query(
-                &format!(
-                    "SELECT {column_name} AS value FROM {table_name} \
-                 WHERE rowid >= (abs(random()) % ?1) + 1 \
-                   AND {column_name} IS NOT NULL \
-                   AND length({column_name}) > 0 \
-                 ORDER BY rowid \
-                 LIMIT 1"
-                ),
-                &[SqlValue::Integer(max_rowid)],
-            )
-            .map_err(SetupError::from_conn)?;
+        let limit = batch.min(remaining) as i64;
 
-        let Some(blob) = rows.first().and_then(|r| r.first()).and_then(sample_bytes) else {
-            continue;
-        };
+        let stream = state.connection.query_stream(
+            &format!(
+                "SELECT {column_name} AS value FROM {table_name} \
+             WHERE rowid >= (abs(random()) % ?1) + 1 \
+               AND {column_name} IS NOT NULL \
+               AND length({column_name}) > 0 \
+             ORDER BY rowid \
+             LIMIT ?2"
+            ),
+            &[SqlValue::Integer(max_rowid), SqlValue::Integer(limit)],
+        )?;
 
-        let sample = decode_sample(state, &blob, schema)
-            .map_err(|e| SetupError::DictTrain(format!("failed to decode training sample: {e}")))?;
+        for row in stream {
+            let row = row.map_err(SetupError::from_conn)?;
 
-        corpus.extend_from_slice(&sample);
-        sizes.push(sample.len());
-        remaining -= 1;
+            let Some(value) = row.first() else {
+                continue;
+            };
+
+            let Some(blob) = sample_bytes(value) else {
+                continue;
+            };
+
+            let sample = decode_sample(state, &blob, schema).map_err(|e| {
+                SetupError::DictTrain(format!("failed to decode training sample: {e}"))
+            })?;
+
+            corpus.extend_from_slice(&sample);
+            sizes.push(sample.len());
+            remaining -= 1;
+        }
     }
 
     if sizes.is_empty() {
