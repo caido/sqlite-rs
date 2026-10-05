@@ -13,7 +13,7 @@ use crate::{
     utils::quote_qualified,
 };
 
-const SAMPLE_BATCH_SIZE: usize = 64;
+const TARGET_ROUNDS: usize = 10;
 
 /// Train one dictionary for every column in `config`.
 ///
@@ -22,7 +22,7 @@ const SAMPLE_BATCH_SIZE: usize = 64;
 /// count has not grown by `retrain_growth` since the dictionary already stored for it.
 /// The first dictionary for a column is trained as soon as `min_samples` is reached.
 ///
-/// A trained column samples up to `max_samples` of the newest values, builds a zstd
+/// A trained column samples up to `max_samples` of random values, builds a zstd
 /// dictionary of `dict_capacity` bytes, inserts it into `__compress_dicts`, and updates
 /// the in-memory encoder, decoder, and current dict id. The returned [`DictId`] is the
 /// new row id; later `compress` calls for that column use it.
@@ -217,8 +217,19 @@ fn has_retrain_required<C: AsRef<Connection>>(
     Ok(available >= last + retrain_growth as i64)
 }
 
+/// Samples fetched per random query. Scales with `max_samples` so we keep
+/// roughly ~10 rounds.
+fn sample_batch_size(max_samples: usize) -> usize {
+    const MIN_BATCH: usize = 1;
+    const MAX_BATCH: usize = 10_000;
+
+    (max_samples / TARGET_ROUNDS)
+        .clamp(MIN_BATCH, MAX_BATCH)
+        .min(max_samples.max(1))
+}
+
 /// Build the dictionary from the samples.
-/// It is done by collecting the samples from the tables, and building the dictionary.
+/// It is done by collecting random samples from the tables, and building the dictionary.
 /// Using stream approach to avoid loading all the samples into memory.
 fn build_dictionary(
     state: &ExtensionState,
@@ -230,35 +241,55 @@ fn build_dictionary(
 ) -> Result<Vec<u8>, SetupError> {
     let mut corpus = Vec::new();
     let mut sizes = Vec::new();
-    let mut offset = 0usize;
     let mut remaining = max_samples;
 
-    while remaining > 0 {
-        let batch_limit = remaining.min(SAMPLE_BATCH_SIZE);
+    let max_rowid = state
+        .connection
+        .query(
+            &format!("SELECT COALESCE(MAX(rowid), 0) FROM {table_name}"),
+            &[],
+        )
+        .map_err(SetupError::from_conn)?;
 
-        let rows = state
-            .connection
-            .query(
-                &format!(
-                    "SELECT {column_name} AS value FROM {table_name} \
-         WHERE {column_name} IS NOT NULL AND length({column_name}) > 0 \
-         ORDER BY rowid DESC \
-         LIMIT ?1 OFFSET ?2"
-                ),
-                &[
-                    SqlValue::Integer(batch_limit as i64),
-                    SqlValue::Integer(offset as i64),
-                ],
-            )
-            .map_err(SetupError::from_conn)?;
+    let max_rowid = first_value(&max_rowid)
+        .and_then(SqlValue::as_i64)
+        .unwrap_or(0);
 
-        if rows.is_empty() {
-            break;
-        }
+    if max_rowid <= 0 {
+        return Err(SetupError::DictTrain(
+            "no non-empty samples available".to_string(),
+        ));
+    }
 
-        let batch_len = rows.len();
-        for row in &rows {
-            let Some(blob) = row.first().and_then(sample_bytes) else {
+    let mut attempts = 0;
+    let batch = sample_batch_size(max_samples);
+    let max_attempts = TARGET_ROUNDS.saturating_mul(4).max(8);
+
+    while remaining > 0 && attempts < max_attempts {
+        attempts += 1;
+
+        let limit = batch.min(remaining) as i64;
+
+        let stream = state.connection.query_stream(
+            &format!(
+                "SELECT {column_name} AS value FROM {table_name} \
+             WHERE rowid >= (abs(random()) % ?1) + 1 \
+               AND {column_name} IS NOT NULL \
+               AND length({column_name}) > 0 \
+             ORDER BY rowid \
+             LIMIT ?2"
+            ),
+            &[SqlValue::Integer(max_rowid), SqlValue::Integer(limit)],
+        )?;
+
+        for row in stream {
+            let row = row.map_err(SetupError::from_conn)?;
+
+            let Some(value) = row.first() else {
+                continue;
+            };
+
+            let Some(blob) = sample_bytes(value) else {
                 continue;
             };
 
@@ -268,12 +299,7 @@ fn build_dictionary(
 
             corpus.extend_from_slice(&sample);
             sizes.push(sample.len());
-        }
-
-        offset += batch_len;
-        remaining = remaining.saturating_sub(batch_len);
-        if batch_len < batch_limit {
-            break;
+            remaining -= 1;
         }
     }
 
