@@ -13,7 +13,6 @@ use crate::{
     Header, SetupColumn, SetupTable,
 };
 
-const TARGET_ROUNDS: usize = 10;
 const MAX_ROW_SIZE: usize = 256 * 1024;
 
 /// Train one dictionary for every column in `config`.
@@ -220,7 +219,9 @@ fn has_retrain_required<C: AsRef<Connection>>(
 
 /// Samples fetched per random query. Scales with `max_samples` so we keep
 /// roughly ~10 rounds.
+/// Cap at the max number of samples per query.
 fn sample_batch_size(max_samples: usize) -> usize {
+    const TARGET_ROUNDS: usize = 10;
     const MIN_BATCH: usize = 1;
     const MAX_BATCH: usize = 10_000;
 
