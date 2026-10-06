@@ -1,4 +1,4 @@
-use std::ffi::CString;
+use std::{ffi::CString, marker::PhantomData};
 
 use libsqlite3_sys::{
     SQLITE_BLOB, SQLITE_DONE, SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL, SQLITE_OK, SQLITE_ROW,
@@ -43,6 +43,39 @@ impl Connection {
 
             Ok(out)
         })
+    }
+
+    pub fn query_stream<'a>(
+        &'a self,
+        sql: &str,
+        params: &[SqlValue],
+    ) -> Result<QueryStream<'a>, SqliteError> {
+        let mut stmt = std::ptr::null_mut();
+        let c_sql = CString::new(sql)?;
+
+        let rc = unsafe {
+            sqlite3_prepare_v2(
+                self.conn.as_ptr(),
+                c_sql.as_ptr(),
+                -1,
+                &mut stmt,
+                std::ptr::null_mut(),
+            )
+        };
+
+        if rc != SQLITE_OK {
+            return Err(SqliteError::Sqlite {
+                operation: "prepare statement",
+                code: rc,
+                message: "prepare failed".into(),
+            });
+        }
+
+        bind_over_values(stmt, params).inspect_err(|_| {
+            unsafe { sqlite3_finalize(stmt) };
+        })?;
+
+        Ok(QueryStream::new(stmt))
     }
 
     pub fn execute(&self, sql: &str, params: &[SqlValue]) -> Result<i64, SqliteError> {
@@ -122,6 +155,58 @@ impl SqlValue {
         match self {
             Self::Blob(b) => Some(b),
             _ => None,
+        }
+    }
+}
+
+pub struct QueryStream<'a> {
+    stmt: *mut sqlite3_stmt,
+    _conn: PhantomData<&'a Connection>,
+}
+
+impl<'a> QueryStream<'a> {
+    fn new(stmt: *mut sqlite3_stmt) -> Self {
+        QueryStream {
+            stmt,
+            _conn: PhantomData,
+        }
+    }
+}
+
+impl Iterator for QueryStream<'_> {
+    type Item = Result<Vec<SqlValue>, SqliteError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let rc = unsafe { sqlite3_step(self.stmt) };
+
+        match rc {
+            SQLITE_ROW => {
+                let row = (|| -> Result<Vec<SqlValue>, SqliteError> {
+                    let count = unsafe { sqlite3_column_count(self.stmt) };
+                    let mut res = Vec::with_capacity(count as usize);
+                    for col in 0..count {
+                        res.push(read_column(self.stmt, col)?);
+                    }
+                    Ok(res)
+                })();
+
+                Some(row)
+            }
+            SQLITE_DONE => None,
+            code => Some(Err(SqliteError::Sqlite {
+                operation: "query stream",
+                code,
+                message: "step failed".into(),
+            })),
+        }
+    }
+}
+
+impl Drop for QueryStream<'_> {
+    fn drop(&mut self) {
+        if !self.stmt.is_null() {
+            unsafe { sqlite3_finalize(self.stmt) };
+            self.stmt = std::ptr::null_mut();
         }
     }
 }
