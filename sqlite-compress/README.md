@@ -53,16 +53,16 @@ impl SetupConnection for AppConnection {
 }
 
 let config = SetupConfig {
-    tables: vec![SetupTable {
-        schema: SchemaName::new("main"),
-        name: TableName::new("requests"),
-        columns: vec![SetupColumn::new(
+    tables: vec![SetupTable::new(
+        SchemaName::new("main"),
+        TableName::new("requests"),
+        vec![SetupColumn::new(
             "body",
             DEFAULT_RETRAIN_GROWTH,
             1_000,
             10_000,
         )],
-    }],
+    )],
     compression_level: DEFAULT_LEVEL,
 };
 
