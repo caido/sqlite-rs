@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{collections::HashSet, fmt::Display};
 
 use libsqlite3_sys::sqlite3;
 
@@ -28,6 +28,20 @@ impl Display for SchemaName {
 impl SchemaName {
     pub fn new(name: &str) -> Self {
         Self(name.to_string())
+    }
+}
+
+/// A view name paired with a schema by [`SetupTable`].
+#[derive(Debug, Clone)]
+pub struct ViewName(String);
+
+impl ViewName {
+    pub fn new(name: &str) -> Self {
+        Self(name.to_string())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
@@ -165,17 +179,36 @@ impl SetupConfig {
     }
 
     /// Validates every column policy before setup or training changes the database.
+    /// Also validates that the decoded view name is not duplicated in the same schema.
     ///
     /// # Errors
     ///
     /// Returns [`SetupError::InvalidConfig`] when a sample or retraining bound
     /// cannot produce a valid dictionary.
     pub fn validate(&self) -> Result<(), SetupError> {
+        let mut seen = HashSet::new();
+
         for table in &self.tables {
+            if table.columns.is_empty() {
+                continue;
+            }
+
+            let key = (
+                table.schema.as_str().to_ascii_lowercase(),
+                table.decoded_view_name().to_ascii_lowercase(),
+            );
+
+            if !seen.insert(key) {
+                return Err(SetupError::InvalidConfig(
+                    "duplicate decoded view name in the same schema",
+                ));
+            }
+
             for column in &table.columns {
                 column.validate()?;
             }
         }
+
         Ok(())
     }
 }
@@ -185,11 +218,19 @@ pub struct SetupTable {
     pub name: TableName,
     pub schema: SchemaName,
     pub columns: Vec<SetupColumn>,
+    view: Option<ViewName>,
+    pub(super) has_trigger: bool,
 }
 
 impl SetupTable {
-    pub fn as_qualified_decoded_view_name(&self) -> String {
-        quote_qualified(self.schema.as_str(), &self.name.decoded_view_name())
+    pub fn new(schema: SchemaName, name: TableName, columns: Vec<SetupColumn>) -> Self {
+        Self {
+            schema,
+            name,
+            columns,
+            view: None,
+            has_trigger: false,
+        }
     }
 
     pub fn compressed_column_names(&self) -> std::collections::HashSet<&str> {
@@ -213,6 +254,31 @@ impl SetupTable {
             self.schema.as_str(),
             column_name.view_name(&self.name).as_str(),
         )
+    }
+
+    pub fn decoded_view_name(&self) -> String {
+        match &self.view {
+            Some(view) => view.as_str().to_string(),
+            None => self.name.decoded_view_name(),
+        }
+    }
+
+    pub fn as_qualified_decoded_view_name(&self) -> String {
+        quote_qualified(self.schema.as_str(), &self.decoded_view_name())
+    }
+
+    pub fn with_view(mut self, view: ViewName) -> Self {
+        self.view = Some(view);
+        self
+    }
+
+    pub fn with_trigger(mut self) -> Self {
+        self.has_trigger = true;
+        self
+    }
+
+    pub fn insert_trigger_name(&self) -> String {
+        format!("{}_insert", self.decoded_view_name())
     }
 }
 

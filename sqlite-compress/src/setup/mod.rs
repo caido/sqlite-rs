@@ -1,14 +1,16 @@
 mod config;
 mod dict;
 mod errors;
+mod trigger;
 mod views;
 
 pub use config::{
     ColumnName, SchemaName, SetupColumn, SetupConfig, SetupConnection, SetupTable, SqlIdent,
-    TableName,
+    TableName, ViewName,
 };
 use dict::init_dict;
 pub use errors::SetupError;
+use trigger::init_trigger;
 use views::init_view;
 
 use crate::state::ExtensionState;
@@ -22,6 +24,7 @@ pub fn setup<C: SetupConnection>(conn: &C, config: &SetupConfig) -> Result<(), S
     config.validate()?;
 
     init_view(&state, config)?;
+    init_trigger(&state, config)?;
     init_dict(&state, config)?;
 
     Ok(())

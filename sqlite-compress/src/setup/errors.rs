@@ -20,6 +20,8 @@ pub enum SetupError {
     MissingConnectionState,
     #[error("dict train cancelled")]
     Cancelled,
+    #[error("name conflict: {name} already exists as {existing_type}")]
+    NameConflict { name: String, existing_type: String },
 }
 
 impl SetupError {

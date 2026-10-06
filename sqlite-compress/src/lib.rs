@@ -13,7 +13,7 @@ pub use dict::{
 pub use functions::{CodecError, DEFAULT_LEVEL, Header};
 pub use setup::{
     ColumnName, SchemaName, SetupColumn, SetupConfig, SetupConnection, SetupError, SetupTable,
-    TableName, setup,
+    TableName, ViewName, setup,
 };
 use sqlite_ffi::{Connection, SqliteError};
 use sqlite_ffi_macros::sqlite_entrypoint;
