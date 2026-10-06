@@ -18,7 +18,7 @@ pub enum SetupError {
     DictTrain(String),
     #[error("connection state missing")]
     MissingConnectionState,
-    #[error("view name conflict: {name} already exists as {existing_type}")]
+    #[error("name conflict: {name} already exists as {existing_type}")]
     NameConflict { name: String, existing_type: String },
 }
 

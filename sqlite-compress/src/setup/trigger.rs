@@ -68,7 +68,7 @@ fn build_insert_values_list(
             let quoted = quote_identifier(col);
             if compressed.contains(col.as_str()) {
                 format!(
-                    "compress(NEW.{quoted}, {schema}, {table_name}, {})",
+                    "CASE WHEN NEW.{quoted} IS NULL THEN NULL ELSE compress(NEW.{quoted}, {schema}, {table_name}, {}) END",
                     quote_literal(col)
                 )
             } else {

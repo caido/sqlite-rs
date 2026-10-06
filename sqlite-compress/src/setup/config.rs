@@ -219,7 +219,7 @@ pub struct SetupTable {
     pub schema: SchemaName,
     pub columns: Vec<SetupColumn>,
     view: Option<ViewName>,
-    has_trigger: bool,
+    pub(super) has_trigger: bool,
 }
 
 impl SetupTable {
