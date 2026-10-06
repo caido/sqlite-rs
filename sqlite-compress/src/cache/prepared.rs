@@ -4,6 +4,7 @@ use zstd::dict::{DecoderDictionary, EncoderDictionary};
 
 use crate::{
     Cache, ColumnKey, DictError, DictId,
+    cache::pool,
     dict::{DictKey, get_raw_dict, read_current_id},
     functions::Level,
     state::ExtensionState,
@@ -18,22 +19,7 @@ pub(crate) fn get_encoder_in_cache(
 ) -> Result<Arc<EncoderDictionary<'static>>, DictError> {
     let key = DictKey::new(schema, dict_id);
 
-    if let Some(dict) = state.cache.lock().encoders.peek(&key) {
-        return Ok(dict);
-    }
-
-    let raw = get_raw_dict(&key, state)?;
-
-    let mut cache = state.cache.lock();
-
-    if let Some(dict) = cache.encoders.get(&key) {
-        return Ok(dict);
-    }
-
-    let encoder = Arc::new(EncoderDictionary::copy(&raw, level.get()));
-    cache.encoders.insert(key, encoder.clone());
-
-    Ok(encoder)
+    pool::get_encoder(&key, level, || get_raw_dict(&key, state))
 }
 
 /// Return the prepared zstd decoder for `(schema, dict_id)`, loading it from `__compress_dicts` and caching it on a miss.
@@ -44,22 +30,7 @@ pub(crate) fn get_decoder_in_cache(
 ) -> Result<Arc<DecoderDictionary<'static>>, DictError> {
     let key = DictKey::new(schema, dict_id);
 
-    if let Some(dict) = state.cache.lock().decoders.peek(&key) {
-        return Ok(dict);
-    }
-
-    let raw = get_raw_dict(&key, state)?;
-
-    let mut cache = state.cache.lock();
-
-    if let Some(dict) = cache.decoders.get(&key) {
-        return Ok(dict);
-    }
-
-    let decoder = Arc::new(DecoderDictionary::copy(&raw));
-    cache.decoders.insert(key, decoder.clone());
-
-    Ok(decoder)
+    pool::get_decoder(&key, || get_raw_dict(&key, state))
 }
 
 /// Load this column's current dict id, encoder, and decoder. Call it as early as possible so later `compress` and `decompress` hit the cache.
@@ -91,20 +62,8 @@ pub(crate) fn insert_into_caches(
     dictionary: &[u8],
     level: Level,
 ) {
-    let mut cache = cache.lock();
-
-    cache.set_current_id(column.clone(), dict_id);
-
-    let key = DictKey::new(column.schema(), dict_id);
-
-    cache.encoders.insert(
-        key.clone(),
-        Arc::new(EncoderDictionary::copy(dictionary, level.get())),
-    );
-
-    cache
-        .decoders
-        .insert(key, Arc::new(DecoderDictionary::copy(dictionary)));
+    cache.lock().set_current_id(column.clone(), dict_id);
+    pool::insert_prepared(DictKey::new(column.schema(), dict_id), dictionary, level);
 }
 
 #[cfg(test)]

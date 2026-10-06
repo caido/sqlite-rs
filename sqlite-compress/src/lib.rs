@@ -30,7 +30,3 @@ pub fn sqlite3_compress_init(connection: Connection) -> Result<(), SqliteError> 
 
     Ok(())
 }
-
-pub fn sqlite3_compress_destroy(connection: &Connection) {
-    ExtensionState::detach(connection);
-}

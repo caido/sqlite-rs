@@ -1,3 +1,4 @@
+mod client_data;
 mod connection;
 mod context;
 mod error;
