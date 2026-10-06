@@ -35,7 +35,7 @@ pub(crate) fn get_encoder(
     }
 
     let encoder = Arc::new(EncoderDictionary::copy(&raw, level.get()));
-    cache.insert(key.clone(), encoder.clone());
+    insert_capped(&mut cache, key.clone(), encoder.clone());
     Ok(encoder)
 }
 
@@ -55,7 +55,7 @@ pub(crate) fn get_decoder(
     }
 
     let decoder = Arc::new(DecoderDictionary::copy(&raw));
-    cache.insert(key.clone(), decoder.clone());
+    insert_capped(&mut cache, key.clone(), decoder.clone());
     Ok(decoder)
 }
 
