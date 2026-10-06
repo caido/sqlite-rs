@@ -7,7 +7,9 @@ mod utils;
 
 pub const DEFAULT_RETRAIN_GROWTH: usize = 5000;
 
-pub use dict::{ColumnKey, DictId, errors::DictError, train_all, train_by_column};
+pub use dict::{
+    ColumnKey, DictId, TrainOptions, TrainProgress, errors::DictError, train_all, train_by_column,
+};
 pub use functions::{CodecError, DEFAULT_LEVEL, Header};
 pub use setup::{
     ColumnName, SchemaName, SetupColumn, SetupConfig, SetupConnection, SetupError, SetupTable,

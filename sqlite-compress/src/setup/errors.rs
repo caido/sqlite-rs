@@ -18,6 +18,8 @@ pub enum SetupError {
     DictTrain(String),
     #[error("connection state missing")]
     MissingConnectionState,
+    #[error("dict train cancelled")]
+    Cancelled,
 }
 
 impl SetupError {

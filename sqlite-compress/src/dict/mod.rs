@@ -7,7 +7,7 @@ mod types;
 
 pub(crate) use current::read_current_id;
 use sqlite_ffi::{Connection, SqlValue, first_value};
-pub use train::{train_all, train_by_column};
+pub use train::{TrainOptions, TrainProgress, train_all, train_by_column};
 pub(crate) use types::DictKey;
 pub use types::{ColumnKey, DictId};
 
