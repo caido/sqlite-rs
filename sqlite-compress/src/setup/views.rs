@@ -70,6 +70,7 @@ fn ensure_column_exist<C: AsRef<Connection>>(
     Ok(())
 }
 
+/// Ensure the view name is not conflicting with the table name.
 fn ensure_name_is_not_conflicting<C: AsRef<Connection>>(
     connection: &C,
     table: &SetupTable,
@@ -87,17 +88,15 @@ fn ensure_name_is_not_conflicting<C: AsRef<Connection>>(
     let rows = connection
         .query(
             &format!(
-                "SELECT type FROM {schema}.sqlite_master WHERE name = ?1",
+                "SELECT type FROM {schema}.sqlite_master WHERE name = ?1 COLLATE NOCASE AND type IN ('table', 'index')",
                 schema = table.schema
             ),
             &[SqlValue::Text(view_name.clone())],
         )
         .map_err(SetupError::from_conn)?;
 
-    if let Some(existing_type) = first_value(&rows).and_then(SqlValue::as_text)
-        && existing_type != "view"
-    {
-        return Err(SetupError::NameConflict {
+    if let Some(existing_type) = first_value(&rows).and_then(SqlValue::as_text) {
+        return Err(SetupError::ViewNameConflict {
             name: view_name,
             existing_type: existing_type.to_string(),
         });
