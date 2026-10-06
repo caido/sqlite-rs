@@ -663,16 +663,16 @@ fn train_by_column_reports_progress() {
             .unwrap();
     }
 
-    let table = SetupTable {
-        name: TableName::new("requests_raw"),
-        schema: SchemaName::new("raw"),
-        columns: vec![SetupColumn::new(
+    let table = SetupTable::new(
+        SchemaName::new("raw"),
+        TableName::new("requests_raw"),
+        vec![SetupColumn::new(
             "data",
             DEFAULT_RETRAIN_GROWTH,
             sample_count,
             max_samples,
         )],
-    };
+    );
 
     let config = SetupConfig {
         tables: vec![table],
