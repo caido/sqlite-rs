@@ -294,16 +294,18 @@ fn train_by_column_persists_one_column() {
             .unwrap();
     }
 
+    let data_column = SetupColumn::new(
+        "data",
+        DEFAULT_RETRAIN_GROWTH,
+        sample_count,
+        DEFAULT_MAX_SAMPLES,
+    );
+
     let table = SetupTable::new(
         SchemaName::new("raw"),
         TableName::new("requests_raw"),
         vec![
-            SetupColumn::new(
-                "data",
-                DEFAULT_RETRAIN_GROWTH,
-                sample_count,
-                DEFAULT_MAX_SAMPLES,
-            ),
+            data_column.clone(),
             SetupColumn::new(
                 "headers",
                 DEFAULT_RETRAIN_GROWTH,
@@ -323,7 +325,7 @@ fn train_by_column_persists_one_column() {
     let dict_id = train_by_column(
         &db,
         &config.tables[0],
-        &config.tables[0].columns[0],
+        &data_column,
         config.compression_level,
         1024,
     )

@@ -215,9 +215,9 @@ impl SetupConfig {
 
 #[derive(Debug, Clone)]
 pub struct SetupTable {
-    pub name: TableName,
-    pub schema: SchemaName,
-    pub columns: Vec<SetupColumn>,
+    pub(crate) name: TableName,
+    pub(crate) schema: SchemaName,
+    pub(crate) columns: Vec<SetupColumn>,
     view: Option<ViewName>,
 }
 
@@ -254,7 +254,7 @@ impl SetupTable {
         )
     }
 
-    pub fn decoded_view_name(&self) -> String {
+    pub(crate) fn decoded_view_name(&self) -> String {
         match &self.view {
             Some(view) => view.as_str().to_string(),
             None => self.name.decoded_view_name(),
