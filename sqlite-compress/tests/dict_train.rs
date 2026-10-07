@@ -62,16 +62,16 @@ fn train_persists_a_new_dictionary() {
     }
 
     let config = SetupConfig {
-        tables: vec![SetupTable {
-            name: TableName::new("requests_raw"),
-            schema: SchemaName::new("raw"),
-            columns: vec![SetupColumn::new(
+        tables: vec![SetupTable::new(
+            SchemaName::new("raw"),
+            TableName::new("requests_raw"),
+            vec![SetupColumn::new(
                 "data",
                 DEFAULT_RETRAIN_GROWTH,
                 sample_count,
                 DEFAULT_MAX_SAMPLES,
             )],
-        }],
+        )],
         compression_level: DEFAULT_LEVEL,
     };
 
@@ -142,11 +142,11 @@ fn train_persists_dictionary_per_column() {
     };
 
     let config = SetupConfig {
-        tables: vec![SetupTable {
-            name: TableName::new("requests_raw"),
-            schema: SchemaName::new("raw"),
-            columns: vec![column("data"), column("headers")],
-        }],
+        tables: vec![SetupTable::new(
+            SchemaName::new("raw"),
+            TableName::new("requests_raw"),
+            vec![column("data"), column("headers")],
+        )],
         compression_level: DEFAULT_LEVEL,
     };
 
@@ -221,10 +221,10 @@ fn train_skips_column_without_enough_samples() {
     }
 
     let config = SetupConfig {
-        tables: vec![SetupTable {
-            name: TableName::new("requests_raw"),
-            schema: SchemaName::new("raw"),
-            columns: vec![
+        tables: vec![SetupTable::new(
+            SchemaName::new("raw"),
+            TableName::new("requests_raw"),
+            vec![
                 SetupColumn::new(
                     "data",
                     DEFAULT_RETRAIN_GROWTH,
@@ -238,7 +238,7 @@ fn train_skips_column_without_enough_samples() {
                     DEFAULT_MAX_SAMPLES,
                 ),
             ],
-        }],
+        )],
         compression_level: DEFAULT_LEVEL,
     };
 
@@ -294,16 +294,18 @@ fn train_by_column_persists_one_column() {
             .unwrap();
     }
 
-    let table = SetupTable {
-        name: TableName::new("requests_raw"),
-        schema: SchemaName::new("raw"),
-        columns: vec![
-            SetupColumn::new(
-                "data",
-                DEFAULT_RETRAIN_GROWTH,
-                sample_count,
-                DEFAULT_MAX_SAMPLES,
-            ),
+    let data_column = SetupColumn::new(
+        "data",
+        DEFAULT_RETRAIN_GROWTH,
+        sample_count,
+        DEFAULT_MAX_SAMPLES,
+    );
+
+    let table = SetupTable::new(
+        SchemaName::new("raw"),
+        TableName::new("requests_raw"),
+        vec![
+            data_column.clone(),
             SetupColumn::new(
                 "headers",
                 DEFAULT_RETRAIN_GROWTH,
@@ -311,7 +313,7 @@ fn train_by_column_persists_one_column() {
                 DEFAULT_MAX_SAMPLES,
             ),
         ],
-    };
+    );
 
     let config = SetupConfig {
         tables: vec![table.clone()],
@@ -323,7 +325,7 @@ fn train_by_column_persists_one_column() {
     let dict_id = train_by_column(
         &db,
         &config.tables[0],
-        &config.tables[0].columns[0],
+        &data_column,
         config.compression_level,
         1024,
     )
@@ -348,16 +350,16 @@ fn train_by_column_persists_one_column() {
 
 fn sample_config(min_samples: usize) -> SetupConfig {
     SetupConfig {
-        tables: vec![SetupTable {
-            name: TableName::new("requests_raw"),
-            schema: SchemaName::new("raw"),
-            columns: vec![SetupColumn::new(
+        tables: vec![SetupTable::new(
+            SchemaName::new("raw"),
+            TableName::new("requests_raw"),
+            vec![SetupColumn::new(
                 "data",
                 DEFAULT_RETRAIN_GROWTH,
                 min_samples,
                 DEFAULT_MAX_SAMPLES,
             )],
-        }],
+        )],
         compression_level: DEFAULT_LEVEL,
     }
 }
