@@ -55,11 +55,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let config = SetupConfig {
-        tables: vec![SetupTable {
+        tables: vec![SetupTable::new(
             schema: SchemaName::new("main"),
-            name: TableName::new("requests"),
-            columns: vec![SetupColumn::new("body", DEFAULT_RETRAIN_GROWTH, 64, 1_000)],
-        }],
+            TableName::new("requests"),
+            vec![SetupColumn::new("body", DEFAULT_RETRAIN_GROWTH, 64, 1_000)],
+        )],
         compression_level: DEFAULT_LEVEL,
     };
 
