@@ -7,6 +7,8 @@ mod common;
 use common::DEFAULT_MAX_SAMPLES;
 use sqlite_ffi::{SqlValue, first_value};
 
+use crate::common::TestDb;
+
 pub fn compress_blob(state: &ExtensionState, data: &[u8]) -> Vec<u8> {
     let rows = state
         .as_ref()
@@ -627,4 +629,62 @@ fn compress_uses_current_id_in_header() {
 
     let blob2 = compress_blob(&state, payload);
     assert_eq!(header_dict_id(&blob2), id2);
+}
+
+#[test]
+fn second_connection_compress_uses_trained_dict_id() {
+    let sample_count = 64;
+
+    let path = std::env::temp_dir().join(format!(
+        "sqlite-compress-shared-cache-{}.db",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&path);
+    let path_str = path.to_str().unwrap();
+
+    let db_a = TestDb::open_path(path_str);
+    let db_b = TestDb::open_path(path_str);
+
+    let state_a = db_a.state();
+    let state_b = db_b.state();
+
+    let attach = format!(
+        "ATTACH DATABASE '{}' AS raw;
+         CREATE TABLE IF NOT EXISTS raw.requests_raw (
+             id INTEGER PRIMARY KEY,
+             data BLOB
+         );",
+        path_str.replace('\'', "''")
+    );
+
+    state_a.as_ref().batch_execute(&attach).unwrap();
+
+    state_b
+        .as_ref()
+        .batch_execute(&format!(
+            "ATTACH DATABASE '{}' AS raw;",
+            path_str.replace('\'', "''")
+        ))
+        .unwrap();
+
+    insert_samples(&state_a, sample_count);
+
+    let config = sample_config(sample_count);
+    setup(&db_a, &config).unwrap();
+
+    let dict_ids = train_all(&db_a, &config, 1024).unwrap();
+    let trained_id = dict_ids[0].get();
+    assert_ne!(trained_id, 0);
+
+    let payload = b"GET /api/users/42 HTTP/1.1\r\nHost: example.com\r\n\r\n";
+    let blob = compress_blob(&state_b, payload);
+
+    assert_eq!(
+        header_dict_id(&blob),
+        trained_id,
+        "conn B must use the dict id trained on conn A"
+    );
+    assert_eq!(decompress_blob(&state_b, &blob), payload);
+
+    let _ = std::fs::remove_file(&path);
 }

@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use crate::{ColumnKey, DictId};
-/// Per-connection cache of prepared zstd dictionaries and the current dict id per column.
+/// Process-wide map of the current dict id per column (shared across all connections via [`crate::Cache`]).
 ///
-/// `encoders` and `decoders` are independent LRUs keyed by [`DictKey`] (schema + dict id).
+/// Prepared encoders/decoders live in the separate process-wide pool, not here.
 ///
 /// `current_ids` maps a [`ColumnKey`] to the dict id that `compress` should use. It is
 /// filled by `warm_cache` (latest row in `__compress_dicts`) and `insert_into_caches`
