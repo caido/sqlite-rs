@@ -663,19 +663,16 @@ fn train_by_column_reports_progress() {
             .unwrap();
     }
 
+    let column = SetupColumn::new("data", DEFAULT_RETRAIN_GROWTH, sample_count, max_samples);
+
     let table = SetupTable::new(
         SchemaName::new("raw"),
         TableName::new("requests_raw"),
-        vec![SetupColumn::new(
-            "data",
-            DEFAULT_RETRAIN_GROWTH,
-            sample_count,
-            max_samples,
-        )],
+        vec![column.clone()],
     );
 
     let config = SetupConfig {
-        tables: vec![table],
+        tables: vec![table.clone()],
         compression_level: DEFAULT_LEVEL,
     };
 
@@ -692,8 +689,8 @@ fn train_by_column_reports_progress() {
 
     let dict_id = train_by_column(
         &db,
-        &config.tables[0],
-        &config.tables[0].columns[0],
+        &table,
+        &column,
         config.compression_level,
         1024,
         &mut options,
