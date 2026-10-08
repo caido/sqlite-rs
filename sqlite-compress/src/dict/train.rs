@@ -1,3 +1,8 @@
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+
 use sqlite_ffi::{Connection, SqlValue, first_value, sample_bytes};
 
 use crate::{
@@ -12,6 +17,30 @@ use crate::{
     state::ExtensionState,
     utils::quote_qualified,
 };
+
+pub struct TrainProgress {
+    pub schema: String,
+    pub table: String,
+    pub column: String,
+    pub samples_done: usize,
+    pub samples_target: usize,
+}
+
+pub struct TrainOptions<F> {
+    pub cancel: Option<Arc<AtomicBool>>,
+    pub progress_every: usize,
+    pub on_progress: Option<F>,
+}
+
+impl Default for TrainOptions<fn(TrainProgress)> {
+    fn default() -> Self {
+        Self {
+            cancel: None,
+            progress_every: 0,
+            on_progress: None,
+        }
+    }
+}
 
 const MAX_ROW_SIZE: usize = 256 * 1024;
 
@@ -28,12 +57,15 @@ const MAX_ROW_SIZE: usize = 256 * 1024;
 /// new row id; later `compress` calls for that column use it.
 ///
 /// The first error stops the walk. Columns already trained in this call stay stored.
-pub fn train_all<C: SetupConnection>(
+pub fn train_all<C: SetupConnection, F: FnMut(TrainProgress)>(
     connection: &C,
     config: &SetupConfig,
     dict_capacity: usize,
+    options: TrainOptions<F>,
 ) -> Result<Vec<DictId>, SetupError> {
     let mut dict_ids = Vec::new();
+
+    let mut options = options;
 
     for (table, column) in config.iter_columns() {
         match train_by_column(
@@ -42,6 +74,7 @@ pub fn train_all<C: SetupConnection>(
             column,
             config.compression_level,
             dict_capacity,
+            &mut options,
         )? {
             Some(dict_id) => dict_ids.push(dict_id),
             None => continue,
@@ -51,12 +84,13 @@ pub fn train_all<C: SetupConnection>(
     Ok(dict_ids)
 }
 
-pub fn train_by_column<C: SetupConnection>(
+pub fn train_by_column<C: SetupConnection, F: FnMut(TrainProgress)>(
     connection: &C,
     table: &SetupTable,
     column: &SetupColumn,
     compression_level: Level,
     dict_capacity: usize,
+    options: &mut TrainOptions<F>,
 ) -> Result<Option<DictId>, SetupError> {
     validate_config(table.columns.len(), dict_capacity)?;
 
@@ -97,6 +131,7 @@ pub fn train_by_column<C: SetupConnection>(
         &column_name,
         column.max_samples,
         dict_capacity,
+        options,
     )?;
 
     let dict_id = persist_dictionary(
@@ -233,13 +268,14 @@ fn sample_batch_size(max_samples: usize) -> usize {
 /// Build the dictionary from the samples.
 /// It is done by collecting random samples from the tables, and building the dictionary.
 /// Using stream approach to avoid loading all the samples into memory.
-fn build_dictionary(
+fn build_dictionary<F: FnMut(TrainProgress)>(
     state: &ExtensionState,
     schema: &str,
     table_name: &str,
     column_name: &str,
     max_samples: usize,
     dict_capacity: usize,
+    options: &mut TrainOptions<F>,
 ) -> Result<Vec<u8>, SetupError> {
     let mut corpus = Vec::new();
     let mut sizes = Vec::new();
@@ -270,6 +306,14 @@ fn build_dictionary(
 
     while remaining > 0 && attempts < max_attempts {
         attempts += 1;
+
+        if options
+            .cancel
+            .as_ref()
+            .is_some_and(|c| c.load(Ordering::Relaxed))
+        {
+            return Err(SetupError::Cancelled);
+        }
 
         let limit = batch.min(remaining) as i64;
 
@@ -304,6 +348,21 @@ fn build_dictionary(
             corpus.extend_from_slice(&sample);
             sizes.push(sample.len());
             remaining -= 1;
+        }
+
+        let done = max_samples - remaining;
+        if options.progress_every > 0
+            && done > 0
+            && done.is_multiple_of(options.progress_every)
+            && let Some(cb) = options.on_progress.as_mut()
+        {
+            cb(TrainProgress {
+                schema: schema.to_string(),
+                table: table_name.to_string(),
+                column: column_name.to_string(),
+                samples_done: done,
+                samples_target: max_samples,
+            });
         }
     }
 

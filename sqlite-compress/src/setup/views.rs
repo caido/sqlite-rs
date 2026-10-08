@@ -79,7 +79,7 @@ fn ensure_name_is_not_conflicting<C: AsRef<Connection>>(
 
     let view_name = table.decoded_view_name();
     if view_name == table.name.as_str() {
-        return Err(SetupError::ViewNameConflict {
+        return Err(SetupError::NameConflict {
             name: view_name,
             existing_type: "table".to_string(),
         });
@@ -96,7 +96,7 @@ fn ensure_name_is_not_conflicting<C: AsRef<Connection>>(
         .map_err(SetupError::from_conn)?;
 
     if let Some(existing_type) = first_value(&rows).and_then(SqlValue::as_text) {
-        return Err(SetupError::ViewNameConflict {
+        return Err(SetupError::NameConflict {
             name: view_name,
             existing_type: existing_type.to_string(),
         });

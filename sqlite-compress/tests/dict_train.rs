@@ -1,6 +1,7 @@
 use sqlite_compress::{
     DEFAULT_LEVEL, DEFAULT_RETRAIN_GROWTH, ExtensionState, Header, SchemaName, SetupColumn,
-    SetupConfig, SetupTable, TableName, setup, train_all, train_by_column,
+    SetupConfig, SetupTable, TableName, TrainOptions, TrainProgress, setup, train_all,
+    train_by_column,
 };
 
 mod common;
@@ -77,7 +78,7 @@ fn train_persists_a_new_dictionary() {
 
     setup(&db, &config).unwrap();
 
-    let dict_ids = train_all(&db, &config, 1024).unwrap();
+    let dict_ids = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
 
     let rows = state
         .as_ref()
@@ -152,7 +153,7 @@ fn train_persists_dictionary_per_column() {
 
     setup(&db, &config).unwrap();
 
-    let dict_ids = train_all(&db, &config, 1024).unwrap();
+    let dict_ids = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
     assert_eq!(dict_ids.len(), 2);
 
     let columns = state
@@ -244,7 +245,7 @@ fn train_skips_column_without_enough_samples() {
 
     setup(&db, &config).unwrap();
 
-    let dict_ids = train_all(&db, &config, 1024).unwrap();
+    let dict_ids = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
     assert_eq!(dict_ids.len(), 1);
 
     let rows = state
@@ -322,12 +323,15 @@ fn train_by_column_persists_one_column() {
 
     setup(&db, &config).unwrap();
 
+    let mut options = TrainOptions::default();
+
     let dict_id = train_by_column(
         &db,
         &config.tables[0],
         &data_column,
         config.compression_level,
         1024,
+        &mut options,
     )
     .unwrap();
 
@@ -403,7 +407,7 @@ fn train_stores_row_count() {
 
     setup(&db, &config).unwrap();
 
-    let dict_ids = train_all(&db, &config, 1024).unwrap();
+    let dict_ids = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
 
     assert_eq!(dict_ids.len(), 1);
 
@@ -447,14 +451,14 @@ fn train_skips_when_growth_below_threshold() {
     let config = sample_config(sample_count);
     setup(&db, &config).unwrap();
 
-    let first = train_all(&db, &config, 1024).unwrap();
+    let first = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
     assert_eq!(first.len(), 1);
     assert_eq!(first[0].get(), 1);
 
     // +100 samples << RETRAIN_GROWTH (5000)
     insert_samples(&state, 100);
 
-    let second = train_all(&db, &config, 1024).unwrap();
+    let second = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
     assert!(second.is_empty());
 
     let rows = state
@@ -491,7 +495,7 @@ fn train_retrains_when_growth_reaches_threshold() {
 
     assert_eq!(res.unwrap(), 0);
 
-    let dict_ids = train_all(&db, &config, 1024).unwrap();
+    let dict_ids = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
     assert_eq!(dict_ids.len(), 1);
     assert_eq!(dict_ids[0].get(), 2);
 
@@ -532,7 +536,7 @@ fn train_all_marks_dict_as_current() {
         ))
         .unwrap();
 
-    let dict_ids = train_all(&db, &config, 1024).unwrap();
+    let dict_ids = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
     assert_eq!(dict_ids.len(), 1);
     let new_id = dict_ids[0].get();
     assert_eq!(new_id, 2);
@@ -569,7 +573,7 @@ fn decompress_old_dict_after_retrain() {
     let config = sample_config(sample_count);
     setup(&db, &config).unwrap();
 
-    let first = train_all(&db, &config, 1024).unwrap();
+    let first = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
     assert_eq!(first[0].get(), 1);
 
     let original = b"GET /api/users/42 HTTP/1.1\r\nHost: example.com\r\n\r\n";
@@ -582,7 +586,7 @@ fn decompress_old_dict_after_retrain() {
         .unwrap();
     insert_samples(&state, DEFAULT_RETRAIN_GROWTH);
 
-    let second = train_all(&db, &config, 1024).unwrap();
+    let second = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
     assert_eq!(second[0].get(), 2);
 
     let blob_v2 = compress_blob(&state, original);
@@ -604,7 +608,7 @@ fn compress_uses_current_id_in_header() {
     let config = sample_config(sample_count);
     setup(&db, &config).unwrap();
 
-    let first = train_all(&db, &config, 1024).unwrap();
+    let first = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
     let id1 = first[0].get();
 
     let payload = b"GET /api/users/7 HTTP/1.1\r\nHost: example.com\r\n\r\n";
@@ -623,10 +627,168 @@ fn compress_uses_current_id_in_header() {
         .unwrap();
     insert_samples(&state, DEFAULT_RETRAIN_GROWTH);
 
-    let second = train_all(&db, &config, 1024).unwrap();
+    let second = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
     let id2 = second[0].get();
     assert_ne!(id2, id1);
 
     let blob2 = compress_blob(&state, payload);
     assert_eq!(header_dict_id(&blob2), id2);
+}
+
+#[test]
+fn train_by_column_reports_progress() {
+    let sample_count = 64;
+    let max_samples = 64;
+    let progress_every = 10;
+
+    let db = common::TestDb::open();
+    let state = db.state();
+
+    state
+        .as_ref()
+        .batch_execute(
+            "
+        ATTACH DATABASE ':memory:' AS raw;
+        CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
+        ",
+        )
+        .unwrap();
+
+    for i in 0..sample_count {
+        let sample = format!("GET /api/users/{i} HTTP/1.1\r\nHost: example.com\r\n\r\n");
+        state
+            .as_ref()
+            .execute(
+                "INSERT INTO raw.requests_raw (data) VALUES (?1)",
+                &[SqlValue::Text(sample)],
+            )
+            .unwrap();
+    }
+
+    let column = SetupColumn::new("data", DEFAULT_RETRAIN_GROWTH, sample_count, max_samples);
+
+    let table = SetupTable::new(
+        SchemaName::new("raw"),
+        TableName::new("requests_raw"),
+        vec![column.clone()],
+    );
+
+    let config = SetupConfig {
+        tables: vec![table.clone()],
+        compression_level: DEFAULT_LEVEL,
+    };
+
+    setup(&db, &config).unwrap();
+
+    let mut reports = Vec::new();
+    let mut options = TrainOptions {
+        cancel: None,
+        progress_every,
+        on_progress: Some(|p: TrainProgress| {
+            reports.push((p.samples_done, p.samples_target));
+        }),
+    };
+
+    let dict_id = train_by_column(
+        &db,
+        &table,
+        &column,
+        config.compression_level,
+        1024,
+        &mut options,
+    )
+    .unwrap();
+
+    assert!(dict_id.is_some());
+    assert!(!reports.is_empty());
+    assert!(reports.iter().all(|&(_, target)| target == max_samples));
+    assert!(
+        reports
+            .iter()
+            .all(|&(done, _)| done > 0 && done.is_multiple_of(progress_every))
+    );
+    assert!(reports.windows(2).all(|w| w[0].0 <= w[1].0));
+}
+
+#[test]
+fn train_cancelled_from_another_thread() {
+    use std::{
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+        thread,
+    };
+
+    use sqlite_compress::SetupError;
+
+    let sample_count = 64;
+    let max_samples = 64;
+
+    let db = common::TestDb::open();
+    let state = db.state();
+
+    state
+        .as_ref()
+        .batch_execute(
+            "
+        ATTACH DATABASE ':memory:' AS raw;
+        CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
+        ",
+        )
+        .unwrap();
+
+    for i in 0..sample_count {
+        let sample = format!("GET /api/users/{i} HTTP/1.1\r\nHost: example.com\r\n\r\n");
+        state
+            .as_ref()
+            .execute(
+                "INSERT INTO raw.requests_raw (data) VALUES (?1)",
+                &[SqlValue::Text(sample)],
+            )
+            .unwrap();
+    }
+
+    let table = SetupTable::new(
+        SchemaName::new("raw"),
+        TableName::new("requests_raw"),
+        vec![SetupColumn::new(
+            "data",
+            DEFAULT_RETRAIN_GROWTH,
+            sample_count,
+            max_samples,
+        )],
+    );
+
+    let config = SetupConfig {
+        tables: vec![table],
+        compression_level: DEFAULT_LEVEL,
+    };
+
+    setup(&db, &config).unwrap();
+
+    let cancel = Arc::new(AtomicBool::new(false));
+    let cancel_setter = Arc::clone(&cancel);
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+
+    let handle = thread::spawn(move || {
+        started_rx.recv().unwrap();
+        cancel_setter.store(true, Ordering::Relaxed);
+    });
+
+    let result = train_all(
+        &db,
+        &config,
+        1024,
+        TrainOptions {
+            cancel: Some(cancel),
+            progress_every: 1,
+            on_progress: Some(move |_| {
+                let _ = started_tx.send(());
+            }),
+        },
+    );
+
+    handle.join().unwrap();
+    assert!(matches!(result, Err(SetupError::Cancelled)));
 }

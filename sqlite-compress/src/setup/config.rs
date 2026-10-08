@@ -269,6 +269,10 @@ impl SetupTable {
         self.view = Some(view);
         self
     }
+
+    pub fn insert_trigger_name(&self) -> String {
+        format!("{}_insert", self.decoded_view_name())
+    }
 }
 
 pub trait SetupConnection {
