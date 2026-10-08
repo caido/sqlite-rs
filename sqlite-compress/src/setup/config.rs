@@ -219,7 +219,6 @@ pub struct SetupTable {
     pub schema: SchemaName,
     pub columns: Vec<SetupColumn>,
     view: Option<ViewName>,
-    pub(super) has_trigger: bool,
 }
 
 impl SetupTable {
@@ -229,7 +228,6 @@ impl SetupTable {
             name,
             columns,
             view: None,
-            has_trigger: false,
         }
     }
 
@@ -269,11 +267,6 @@ impl SetupTable {
 
     pub fn with_view(mut self, view: ViewName) -> Self {
         self.view = Some(view);
-        self
-    }
-
-    pub fn with_trigger(mut self) -> Self {
-        self.has_trigger = true;
         self
     }
 
