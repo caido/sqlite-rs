@@ -1,4 +1,7 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 use sqlite_ffi::{Connection, SqlValue, first_value, sample_bytes};
 
@@ -23,13 +26,13 @@ pub struct TrainProgress {
     pub samples_target: usize,
 }
 
-pub struct TrainOptions<'a, F> {
-    pub cancel: Option<&'a AtomicBool>,
+pub struct TrainOptions<F> {
+    pub cancel: Option<Arc<AtomicBool>>,
     pub progress_every: usize,
     pub on_progress: Option<F>,
 }
 
-impl Default for TrainOptions<'_, fn(TrainProgress)> {
+impl Default for TrainOptions<fn(TrainProgress)> {
     fn default() -> Self {
         Self {
             cancel: None,
@@ -58,7 +61,7 @@ pub fn train_all<C: SetupConnection, F: FnMut(TrainProgress)>(
     connection: &C,
     config: &SetupConfig,
     dict_capacity: usize,
-    options: TrainOptions<'_, F>,
+    options: TrainOptions<F>,
 ) -> Result<Vec<DictId>, SetupError> {
     let mut dict_ids = Vec::new();
 
@@ -87,7 +90,7 @@ pub fn train_by_column<C: SetupConnection, F: FnMut(TrainProgress)>(
     column: &SetupColumn,
     compression_level: Level,
     dict_capacity: usize,
-    options: &mut TrainOptions<'_, F>,
+    options: &mut TrainOptions<F>,
 ) -> Result<Option<DictId>, SetupError> {
     validate_config(table.columns.len(), dict_capacity)?;
 
@@ -272,7 +275,7 @@ fn build_dictionary<F: FnMut(TrainProgress)>(
     column_name: &str,
     max_samples: usize,
     dict_capacity: usize,
-    options: &mut TrainOptions<'_, F>,
+    options: &mut TrainOptions<F>,
 ) -> Result<Vec<u8>, SetupError> {
     let mut corpus = Vec::new();
     let mut sizes = Vec::new();
@@ -304,7 +307,11 @@ fn build_dictionary<F: FnMut(TrainProgress)>(
     while remaining > 0 && attempts < max_attempts {
         attempts += 1;
 
-        if options.cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
+        if options
+            .cancel
+            .as_ref()
+            .is_some_and(|c| c.load(Ordering::Relaxed))
+        {
             return Err(SetupError::Cancelled);
         }
 

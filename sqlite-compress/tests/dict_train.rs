@@ -710,3 +710,86 @@ fn train_by_column_reports_progress() {
     );
     assert!(reports.windows(2).all(|w| w[0].0 <= w[1].0));
 }
+
+#[test]
+fn train_cancelled_from_another_thread() {
+    use std::{
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+        thread,
+    };
+
+    use sqlite_compress::SetupError;
+
+    let sample_count = 64;
+    let max_samples = 64;
+
+    let db = common::TestDb::open();
+    let state = db.state();
+
+    state
+        .as_ref()
+        .batch_execute(
+            "
+        ATTACH DATABASE ':memory:' AS raw;
+        CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
+        ",
+        )
+        .unwrap();
+
+    for i in 0..sample_count {
+        let sample = format!("GET /api/users/{i} HTTP/1.1\r\nHost: example.com\r\n\r\n");
+        state
+            .as_ref()
+            .execute(
+                "INSERT INTO raw.requests_raw (data) VALUES (?1)",
+                &[SqlValue::Text(sample)],
+            )
+            .unwrap();
+    }
+
+    let table = SetupTable::new(
+        SchemaName::new("raw"),
+        TableName::new("requests_raw"),
+        vec![SetupColumn::new(
+            "data",
+            DEFAULT_RETRAIN_GROWTH,
+            sample_count,
+            max_samples,
+        )],
+    );
+
+    let config = SetupConfig {
+        tables: vec![table],
+        compression_level: DEFAULT_LEVEL,
+    };
+
+    setup(&db, &config).unwrap();
+
+    let cancel = Arc::new(AtomicBool::new(false));
+    let cancel_setter = Arc::clone(&cancel);
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+
+    let handle = thread::spawn(move || {
+        started_rx.recv().unwrap();
+        cancel_setter.store(true, Ordering::Relaxed);
+    });
+
+    let result = train_all(
+        &db,
+        &config,
+        1024,
+        TrainOptions {
+            cancel: Some(cancel),
+            progress_every: 1,
+            on_progress: Some(move |_| {
+                let _ = started_tx.send(());
+            }),
+        },
+    );
+
+    handle.join().unwrap();
+    assert!(matches!(result, Err(SetupError::Cancelled)));
+}
