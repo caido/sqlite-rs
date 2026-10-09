@@ -1,4 +1,4 @@
-use std::{ptr, sync::Once};
+use std::{ffi::CString, ptr, sync::Once};
 
 use libsqlite3_sys::{SQLITE_OK, sqlite3, sqlite3_auto_extension, sqlite3_close, sqlite3_open};
 use sqlite_compress::{ExtensionState, SetupConnection, sqlite3_compress_init};
@@ -26,6 +26,24 @@ impl TestDb {
         let rc = unsafe { sqlite3_open(c":memory:".as_ptr(), &mut db) };
         assert_eq!(rc, SQLITE_OK);
 
+        Self { db }
+    }
+
+    #[allow(dead_code)]
+    pub fn open_path(path: &str) -> Self {
+        static REGISTER: Once = Once::new();
+        REGISTER.call_once(|| unsafe {
+            #[allow(clippy::missing_transmute_annotations)]
+            sqlite3_auto_extension(Some(std::mem::transmute(
+                sqlite3_compress_init as *const (),
+            )));
+        });
+
+        let c_path = CString::new(path).unwrap();
+        let mut db = ptr::null_mut();
+        let rc = unsafe { sqlite3_open(c_path.as_ptr(), &mut db) };
+
+        assert_eq!(rc, SQLITE_OK);
         Self { db }
     }
 

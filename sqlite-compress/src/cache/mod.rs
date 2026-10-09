@@ -1,5 +1,5 @@
 mod connection;
-mod lru;
+mod pool;
 mod prepared;
 
 pub(crate) use connection::DictCache;

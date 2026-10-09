@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use libsqlite3_sys::sqlite3;
 use parking_lot::Mutex;
@@ -6,11 +6,17 @@ use sqlite_ffi::{Connection, Context, SqliteError};
 
 use crate::cache::DictCache;
 
-/// Per-connection state for the extension: the SQLite connection and its dictionary cache.
+// Shared cache for all connections.
+static SHARED: LazyLock<Cache> = LazyLock::new(|| Cache(Arc::new(Mutex::new(DictCache::new()))));
+
+/// Per-connection handle: this SQLite connection plus a clone of the process-wide dictionary cache.
 ///
-/// `sqlite3_compress_init` calls [`ExtensionState::attach`], which stores an empty [`Cache`] in the connection's client data.
-/// `setup`, `train_all`, `compress`, and `decompress` read that same cache back with [`ExtensionState::from_db`] or [`ExtensionState::from_context`].
-/// The cache is an `Arc`, so every lookup shares the encoders, decoders, and current dict ids for this connection.
+/// `sqlite3_compress_init` calls [`ExtensionState::attach`], which stores a clone of the shared
+/// [`Cache`] in the connection's client data (not a fresh empty cache).
+/// `setup`, `train_all`, `compress`, and `decompress` read it back with [`ExtensionState::from_db`]
+/// or [`ExtensionState::from_context`].
+/// All connections therefore share the same `current_ids`; prepared encoders/decoders live in the
+/// separate process-wide pool.
 pub struct ExtensionState {
     pub(crate) connection: Connection,
     pub(crate) cache: Cache,
@@ -35,9 +41,7 @@ impl ExtensionState {
     const NAME: &str = "sqlite-compress";
 
     pub fn attach(connection: &Connection) -> Result<(), SqliteError> {
-        let cache = Cache(Arc::new(Mutex::new(DictCache::new())));
-
-        connection.set_client_data(Self::NAME, cache)
+        connection.set_client_data(Self::NAME, SHARED.clone())
     }
 
     pub fn from_db(db: *mut sqlite3) -> Result<Self, SqliteError> {
