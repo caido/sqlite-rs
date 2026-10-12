@@ -106,23 +106,16 @@ pub fn train_by_column<C: SetupConnection, F: FnMut(TrainProgress)>(
 
     let state = ExtensionState::from_db(unsafe { connection.sqlite_handle() })?;
 
-    let (enough, available) =
-        has_enough_samples(&state, &table_name, &column_name, column.min_samples)?;
+    let available = has_enough_samples(&state, &table_name, &column_name, column.min_samples)?;
 
-    if !enough {
-        return Ok(None);
-    }
-
-    if !has_retrain_required(
+    has_retrain_required(
         &state,
         &dict_store,
         key.table(),
         key.column(),
         available,
         column.retrain_growth,
-    )? {
-        return Ok(None);
-    }
+    )?;
 
     let dictionary = build_dictionary(
         &state,
@@ -194,7 +187,7 @@ fn has_enough_samples<C: AsRef<Connection>>(
     table_name: &str,
     column_name: &str,
     min_samples: usize,
-) -> Result<(bool, i64), SetupError> {
+) -> Result<i64, SetupError> {
     let connection = connection.as_ref();
 
     let rows = connection
@@ -209,7 +202,13 @@ fn has_enough_samples<C: AsRef<Connection>>(
 
     let count = first_value(&rows).and_then(SqlValue::as_i64).unwrap_or(0);
 
-    Ok((count >= min_samples as i64, count))
+    if count >= min_samples as i64 {
+        return Ok(count);
+    }
+
+    Err(SetupError::InvalidConfig(
+        "not enough samples available: {count} < {min_samples}",
+    ))
 }
 
 /// Check if the retrain is required.
@@ -224,7 +223,7 @@ fn has_retrain_required<C: AsRef<Connection>>(
     column_name: &str,
     available: i64,
     retrain_growth: usize,
-) -> Result<bool, SetupError> {
+) -> Result<(), SetupError> {
     let connection = connection.as_ref();
 
     let rows = connection
@@ -245,11 +244,13 @@ fn has_retrain_required<C: AsRef<Connection>>(
 
     let last = first_value(&rows).and_then(SqlValue::as_i64).unwrap_or(0);
 
-    if last < 0 {
-        return Ok(true);
+    if last < 0 || available >= last + retrain_growth as i64 {
+        return Ok(());
     }
 
-    Ok(available >= last + retrain_growth as i64)
+    Err(SetupError::InvalidConfig(
+        "not enough samples available: {available} < {last} + {retrain_growth}",
+    ))
 }
 
 /// Samples fetched per random query. Scales with `max_samples` so we keep

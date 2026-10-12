@@ -1,6 +1,6 @@
 use sqlite_compress::{
     DEFAULT_LEVEL, DEFAULT_RETRAIN_GROWTH, ExtensionState, Header, SchemaName, SetupColumn,
-    SetupConfig, SetupTable, TableName, TrainOptions, TrainProgress, setup, train_all,
+    SetupConfig, SetupError, SetupTable, TableName, TrainOptions, TrainProgress, setup, train_all,
     train_by_column,
 };
 
@@ -247,8 +247,11 @@ fn train_skips_column_without_enough_samples() {
 
     setup(&db, &config).unwrap();
 
-    let dict_ids = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
-    assert_eq!(dict_ids.len(), 1);
+    let err = train_all(&db, &config, 1024, TrainOptions::default()).unwrap_err();
+    assert!(matches!(
+        err,
+        SetupError::InvalidConfig("not enough samples available: {count} < {min_samples}")
+    ));
 
     let rows = state
         .as_ref()
@@ -460,8 +463,13 @@ fn train_skips_when_growth_below_threshold() {
     // +100 samples << RETRAIN_GROWTH (5000)
     insert_samples(&state, 100);
 
-    let second = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
-    assert!(second.is_empty());
+    let err = train_all(&db, &config, 1024, TrainOptions::default()).unwrap_err();
+    assert!(matches!(
+        err,
+        SetupError::InvalidConfig(
+            "not enough samples available: {available} < {last} + {retrain_growth}"
+        )
+    ));
 
     let rows = state
         .as_ref()
