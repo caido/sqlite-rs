@@ -71,19 +71,61 @@ impl Display for TableName {
     }
 }
 
+/// When a column already has a dictionary, decides how much the sample count
+/// must grow before another train is allowed.
+///
+/// [`Percent`](RetrainPolicy::Percent) scales with the last trained row count,
+/// so large tables require proportionally more new data than small ones.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum RetrainPolicy {
+    /// Retrain once the sample count has grown by at least this many rows.
+    Absolute(usize),
+    /// Retrain once the sample count has grown by at least this percentage of
+    /// the last trained row count (e.g. `Percent(50)` needs +50% more samples).
+    Percent(u8),
+}
+
+impl RetrainPolicy {
+    /// Minimum additional samples required given the last trained `row_count`.
+    pub fn min_growth(&self, last_row_count: i64) -> i64 {
+        match *self {
+            Self::Absolute(n) => n as i64,
+            Self::Percent(p) => {
+                let last = last_row_count.max(0);
+                let product = last.saturating_mul(i64::from(p));
+                product.saturating_add(99) / 100
+            }
+        }
+    }
+
+    fn validate(&self) -> Result<(), SetupError> {
+        match *self {
+            Self::Absolute(0) | Self::Percent(0) => Err(SetupError::InvalidConfig(
+                "retrain growth must be greater than zero",
+            )),
+            _ => Ok(()),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SetupColumn {
     pub name: ColumnName,
-    pub retrain_growth: usize,
+    pub retrain_policy: RetrainPolicy,
     pub min_samples: usize,
     pub max_samples: usize,
 }
 
 impl SetupColumn {
-    pub fn new(name: &str, retrain_growth: usize, min_samples: usize, max_samples: usize) -> Self {
+    pub fn new(
+        name: &str,
+        retrain_policy: RetrainPolicy,
+        min_samples: usize,
+        max_samples: usize,
+    ) -> Self {
         Self {
             name: ColumnName::new(name),
-            retrain_growth,
+            retrain_policy,
             min_samples,
             max_samples,
         }
@@ -96,11 +138,7 @@ impl SetupColumn {
     /// Returns [`SetupError::InvalidConfig`] when a threshold is zero or the
     /// sampling limit is smaller than the initial-training threshold.
     pub fn validate(&self) -> Result<(), SetupError> {
-        if self.retrain_growth == 0 {
-            return Err(SetupError::InvalidConfig(
-                "retrain growth must be greater than zero",
-            ));
-        }
+        self.retrain_policy.validate()?;
 
         if self.min_samples == 0 {
             return Err(SetupError::InvalidConfig(

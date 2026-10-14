@@ -17,7 +17,7 @@ With the default `bundled` feature, call `sqlite3_compress_init` from the host a
 
 ### What `setup` does
 
-1. Validates each column policy (`retrain_growth`, `min_samples`, `max_samples`)
+1. Validates each column policy (`retrain_policy`, `min_samples`, `max_samples`)
 2. Ensures each configured table and column exists
 3. Creates `__compress_decoded_{table}` views (idempotent; compressed columns go through `decompress`)
 4. Creates `__compress_dicts` in each schema (`id`, `dict`, `trained_at`, `table_name`, `column_name`, `row_count`)
@@ -26,7 +26,7 @@ With the default `bundled` feature, call `sqlite3_compress_init` from the host a
 ### What `train` does
 
 1. Validates the dictionary capacity and that the table has at least one column
-2. Skips the column unless the non-empty sample count reaches `min_samples`, and unless the count has grown by `retrain_growth` since the latest dictionary
+2. Skips the column unless the non-empty sample count reaches `min_samples`, and unless growth since the latest dictionary satisfies `retrain_policy` (`Percent` scales with the last trained row count; `Absolute` uses a fixed delta)
 3. Builds a dictionary from up to `max_samples` values
 4. Inserts it into `__compress_dicts` (the latest row by `id` is current) and updates the caches
 
@@ -39,7 +39,7 @@ The host implements `SetupConnection` for the connection it already owns. See th
 ```rust
 use sqlite_compress::{
     setup, train_all, SchemaName, SetupColumn, SetupConfig, SetupConnection, SetupTable,
-    TableName, DEFAULT_LEVEL, DEFAULT_RETRAIN_GROWTH,
+    TableName, DEFAULT_LEVEL, DEFAULT_RETRAIN_POLICY,
 };
 
 struct AppConnection {
@@ -58,7 +58,7 @@ let config = SetupConfig {
         TableName::new("requests"),
         vec![SetupColumn::new(
             "body",
-            DEFAULT_RETRAIN_GROWTH,
+            DEFAULT_RETRAIN_POLICY,
             1_000,
             10_000,
         )],
@@ -71,7 +71,7 @@ setup(&app, &config)?;
 train_all(&app, &config, 112_640)?;
 ```
 
-`112_640` is the dictionary capacity in bytes. The third argument of `SetupColumn::new` is `min_samples`, and the fourth is `max_samples`.
+`112_640` is the dictionary capacity in bytes. The second argument of `SetupColumn::new` is the [`RetrainPolicy`](src/setup/config.rs) (`Percent` or `Absolute`); the third is `min_samples`, and the fourth is `max_samples`.
 
 After training, store a compressed BLOB:
 

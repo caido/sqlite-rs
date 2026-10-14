@@ -13,7 +13,7 @@ use crate::{
         types::{ColumnKey, DictId},
     },
     functions::{CodecError, Level, decompress_raw, decompress_with_decoder},
-    setup::{SetupConfig, SetupConnection, SetupError, SqlIdent},
+    setup::{RetrainPolicy, SetupConfig, SetupConnection, SetupError, SqlIdent},
     state::ExtensionState,
     utils::quote_qualified,
 };
@@ -48,7 +48,8 @@ const MAX_ROW_SIZE: usize = 256 * 1024;
 ///
 /// Each column is handled by [`train_by_column`]. A column is skipped, and omitted from the
 /// returned ids, when it has fewer than `min_samples` non-empty values, or when the sample
-/// count has not grown by `retrain_growth` since the dictionary already stored for it.
+/// count has not grown enough under the column's [`RetrainPolicy`] since the dictionary
+/// already stored for it.
 /// The first dictionary for a column is trained as soon as `min_samples` is reached.
 ///
 /// A trained column samples up to `max_samples` of random values, builds a zstd
@@ -114,7 +115,7 @@ pub fn train_by_column<C: SetupConnection, F: FnMut(TrainProgress)>(
         key.table(),
         key.column(),
         available,
-        column.retrain_growth,
+        column.retrain_policy,
     )?;
 
     let dictionary = build_dictionary(
@@ -212,17 +213,17 @@ fn has_enough_samples<C: AsRef<Connection>>(
 }
 
 /// Check if the retrain is required.
-/// It is done by checking the last row count of the dictionary store.
-/// If the last row count is less than the retrain growth, the retrain is required.
-/// Last stored row_count for this column vs current sample count.
-/// No prior dict → retrain. Otherwise need `last + retrain_growth` samples.
+///
+/// Compares the last stored `row_count` for this column to the current sample
+/// count. No prior dict → retrain. Otherwise need
+/// `last + policy.min_growth(last)` samples.
 fn has_retrain_required<C: AsRef<Connection>>(
     connection: &C,
     dict_table: &str,
     table_name: &str,
     column_name: &str,
     available: i64,
-    retrain_growth: usize,
+    policy: RetrainPolicy,
 ) -> Result<(), SetupError> {
     let connection = connection.as_ref();
 
@@ -243,8 +244,9 @@ fn has_retrain_required<C: AsRef<Connection>>(
         .map_err(SetupError::from_conn)?;
 
     let last = first_value(&rows).and_then(SqlValue::as_i64).unwrap_or(0);
+    let required = last + policy.min_growth(last);
 
-    if last < 0 || available >= last + retrain_growth as i64 {
+    if last < 0 || available >= required {
         return Ok(());
     }
 

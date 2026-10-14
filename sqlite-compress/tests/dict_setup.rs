@@ -1,5 +1,5 @@
 use sqlite_compress::{
-    DEFAULT_LEVEL, DEFAULT_RETRAIN_GROWTH, SchemaName, SetupColumn, SetupConfig, SetupTable,
+    DEFAULT_LEVEL, DEFAULT_RETRAIN_POLICY, SchemaName, SetupColumn, SetupConfig, SetupTable,
     TableName, setup,
 };
 mod common;
@@ -26,7 +26,7 @@ fn setup_table_does_not_exist() {
             TableName::new("requests_raw"),
             vec![SetupColumn::new(
                 "data",
-                DEFAULT_RETRAIN_GROWTH,
+                DEFAULT_RETRAIN_POLICY,
                 DEFAULT_MIN_SAMPLES,
                 DEFAULT_MAX_SAMPLES,
             )],
@@ -79,7 +79,7 @@ fn setup_table_already_exists() {
             TableName::new("requests_raw"),
             vec![SetupColumn::new(
                 "data",
-                DEFAULT_RETRAIN_GROWTH,
+                DEFAULT_RETRAIN_POLICY,
                 DEFAULT_MIN_SAMPLES,
                 DEFAULT_MAX_SAMPLES,
             )],
@@ -122,7 +122,7 @@ fn setup_creates_dict_table_per_schema() {
     let column = || {
         SetupColumn::new(
             "data",
-            DEFAULT_RETRAIN_GROWTH,
+            DEFAULT_RETRAIN_POLICY,
             DEFAULT_MIN_SAMPLES,
             DEFAULT_MAX_SAMPLES,
         )
