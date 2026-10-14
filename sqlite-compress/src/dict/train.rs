@@ -12,7 +12,7 @@ use crate::{
         DICT_TABLE_NAME,
         types::{ColumnKey, DictId},
     },
-    functions::{CodecError, Level, decompress_raw, decompress_with_decoder},
+    functions::{CodecError, Level, ParsedBlob, decompress_raw, decompress_with_decoder},
     setup::{SetupConfig, SetupConnection, SetupError, SqlIdent},
     state::ExtensionState,
     utils::quote_qualified,
@@ -146,12 +146,8 @@ pub(crate) fn decode_sample(
     blob: &[u8],
     schema: &str,
 ) -> Result<Vec<u8>, CodecError> {
-    let (header, payload) = match Header::parse(blob) {
-        Ok(parsed) => parsed,
-        Err(CodecError::MalformedHeader)
-        | Err(CodecError::UnknownCodec(_))
-        | Err(CodecError::UnknownVersion(_)) => return Ok(blob.to_vec()),
-        Err(e) => return Err(e),
+    let ParsedBlob::Framed(header, payload) = Header::parse_blob(blob)? else {
+        return Ok(blob.to_vec());
     };
 
     let dict_id = DictId::from(header.dict_id.get());

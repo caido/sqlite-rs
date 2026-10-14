@@ -1,6 +1,6 @@
 use sqlite_compress::{
-    DEFAULT_LEVEL, DEFAULT_RETRAIN_GROWTH, ExtensionState, Header, SchemaName, SetupColumn,
-    SetupConfig, SetupError, SetupTable, TableName, TrainOptions, TrainProgress, setup, train_all,
+    DEFAULT_LEVEL, DEFAULT_RETRAIN_GROWTH, ExtensionState, SchemaName, SetupColumn, SetupConfig,
+    SetupError, SetupTable, TableName, TrainOptions, TrainProgress, setup, train_all,
     train_by_column,
 };
 
@@ -33,7 +33,7 @@ pub fn decompress_blob(state: &ExtensionState, blob: &[u8]) -> Vec<u8> {
 }
 
 pub fn header_dict_id(blob: &[u8]) -> u32 {
-    Header::parse(blob).unwrap().0.dict_id.get()
+    u32::from_le_bytes(blob[3..7].try_into().expect("framed header"))
 }
 
 #[test]
@@ -859,4 +859,29 @@ fn train_cancelled_from_another_thread() {
 
     handle.join().unwrap();
     assert!(matches!(result, Err(SetupError::Cancelled)));
+}
+
+#[test]
+fn decompress_passes_through_plain_text() {
+    let db = common::TestDb::open();
+    let state = db.state();
+
+    state
+        .as_ref()
+        .batch_execute(
+            "
+        ATTACH DATABASE ':memory:' AS raw;
+        CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
+        INSERT INTO raw.requests_raw (data) VALUES (CAST('GET /plain HTTP/1.1' AS BLOB));
+        ",
+        )
+        .unwrap();
+
+    let rows = state
+        .as_ref()
+        .query("SELECT decompress(data, 'raw') FROM raw.requests_raw", &[])
+        .unwrap();
+
+    let out = first_value(&rows).unwrap().as_blob().unwrap();
+    assert_eq!(out, b"GET /plain HTTP/1.1");
 }
