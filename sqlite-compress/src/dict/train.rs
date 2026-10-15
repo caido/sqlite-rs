@@ -143,11 +143,11 @@ pub fn train_by_column<C: SetupConnection, F: FnMut(TrainProgress)>(
 
 pub(crate) fn decode_sample(
     state: &ExtensionState,
-    blob: &[u8],
+    blob: Vec<u8>,
     schema: &str,
 ) -> Result<Vec<u8>, CodecError> {
-    let ParsedBlob::Framed(header, payload) = Header::parse_blob(blob)? else {
-        return Ok(blob.to_vec());
+    let ParsedBlob::Framed(header, payload) = Header::parse_blob(&blob)? else {
+        return Ok(blob);
     };
 
     let dict_id = DictId::from(header.dict_id.get());
@@ -338,7 +338,7 @@ fn build_dictionary<F: FnMut(TrainProgress)>(
                 continue;
             };
 
-            let sample = decode_sample(state, &blob, schema).map_err(|e| {
+            let sample = decode_sample(state, blob, schema).map_err(|e| {
                 SetupError::DictTrain(format!("failed to decode training sample: {e}"))
             })?;
 

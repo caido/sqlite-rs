@@ -42,7 +42,7 @@ pub(crate) enum ParsedBlob<'a> {
     /// Header valid + compressed payload
     Framed(Header, &'a [u8]),
     /// Not our format → treat as plain text
-    Plain(),
+    Plain,
 }
 
 impl Header {
@@ -96,7 +96,7 @@ impl Header {
             Ok((header, payload)) => Ok(ParsedBlob::Framed(header, payload)),
             Err(CodecError::MalformedHeader)
             | Err(CodecError::UnknownCodec(_))
-            | Err(CodecError::UnknownVersion(_)) => Ok(ParsedBlob::Plain()),
+            | Err(CodecError::UnknownVersion(_)) => Ok(ParsedBlob::Plain),
             Err(e) => Err(e),
         }
     }
