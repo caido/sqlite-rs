@@ -12,4 +12,5 @@ pub use decompress::sqlite_decompress;
 pub(crate) use decompress::{decompress_raw, decompress_with_decoder};
 pub use errors::CodecError;
 pub use header::Header;
+pub(crate) use header::ParsedBlob;
 pub use types::Level;

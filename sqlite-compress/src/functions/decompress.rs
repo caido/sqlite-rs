@@ -7,6 +7,7 @@ use crate::{
     DictError, DictId,
     cache::get_decoder_in_cache,
     functions::{
+        ParsedBlob,
         errors::CodecError::{self},
         header::Header,
     },
@@ -47,7 +48,12 @@ pub fn sqlite_decompress(context: Context, values: &[Value]) -> Result<(), Sqlit
     let blob = values[0].to_blob();
     let schema = values[1].to_text().unwrap_or("main");
 
-    let (header, payload) = Header::parse(blob).map_err(|e| SqliteError::Message(e.to_string()))?;
+    let ParsedBlob::Framed(header, payload) =
+        Header::parse_blob(blob).map_err(|e| SqliteError::Message(e.to_string()))?
+    else {
+        context.result_blob(blob);
+        return Ok(());
+    };
 
     let dict_id = DictId::from(header.dict_id.get());
     let len = header.uncompressed_len.get() as usize;

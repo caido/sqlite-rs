@@ -38,6 +38,13 @@ pub struct Header {
     pub uncompressed_len: U32,
 }
 
+pub(crate) enum ParsedBlob<'a> {
+    /// Header valid + compressed payload
+    Framed(Header, &'a [u8]),
+    /// Not our format → treat as plain text
+    Plain,
+}
+
 impl Header {
     /// Latest prefix version emitted by this crate.
     pub const VERSION: u8 = 1;
@@ -64,7 +71,7 @@ impl Header {
     ///
     /// Returns an error when the prefix is truncated, uses a newer unsupported
     /// version, or names an unknown codec.
-    pub fn parse(blob: &[u8]) -> Result<(Self, &[u8]), CodecError> {
+    fn parse(blob: &[u8]) -> Result<(Self, &[u8]), CodecError> {
         let (header, _) = Self::ref_from_prefix(blob).map_err(|_| CodecError::MalformedHeader)?;
 
         if header.version > Self::VERSION {
@@ -82,6 +89,16 @@ impl Header {
         let payload = &blob[header_len..];
 
         Ok((*header, payload))
+    }
+
+    pub(crate) fn parse_blob(blob: &[u8]) -> Result<ParsedBlob<'_>, CodecError> {
+        match Self::parse(blob) {
+            Ok((header, payload)) => Ok(ParsedBlob::Framed(header, payload)),
+            Err(CodecError::MalformedHeader)
+            | Err(CodecError::UnknownCodec(_))
+            | Err(CodecError::UnknownVersion(_)) => Ok(ParsedBlob::Plain),
+            Err(e) => Err(e),
+        }
     }
 }
 
