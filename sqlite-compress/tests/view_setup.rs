@@ -255,7 +255,11 @@ fn setup_rejects_zero_retrain_growth() {
 
     let config = invalid_config(SetupColumn::new(
         "data",
-        RetrainPolicy::Percent(0),
+        RetrainPolicy::Progressive {
+            start: 0,
+            step: 5,
+            cap: 50,
+        },
         DEFAULT_MIN_SAMPLES,
         DEFAULT_MAX_SAMPLES,
     ));
@@ -264,6 +268,39 @@ fn setup_rejects_zero_retrain_growth() {
     assert!(matches!(
         err,
         SetupError::InvalidConfig("retrain growth must be greater than zero")
+    ));
+}
+
+#[test]
+fn setup_rejects_retrain_start_above_cap() {
+    let db = common::TestDb::open();
+    let state = db.state();
+
+    state
+        .as_ref()
+        .batch_execute(
+            r#"
+        ATTACH DATABASE ':memory:' AS raw;
+        CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
+        "#,
+        )
+        .unwrap();
+
+    let config = invalid_config(SetupColumn::new(
+        "data",
+        RetrainPolicy::Progressive {
+            start: 60,
+            step: 5,
+            cap: 50,
+        },
+        DEFAULT_MIN_SAMPLES,
+        DEFAULT_MAX_SAMPLES,
+    ));
+
+    let err = setup(&db, &config).unwrap_err();
+    assert!(matches!(
+        err,
+        SetupError::InvalidConfig("retrain start percent must be <= cap")
     ));
 }
 

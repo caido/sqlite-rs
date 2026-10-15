@@ -460,8 +460,8 @@ fn train_skips_when_growth_below_threshold() {
     assert_eq!(first.len(), 1);
     assert_eq!(first[0].get(), 1);
 
-    // +10 samples << 50% of 64 (= 32)
-    insert_samples(&state, 10);
+    // +3 samples << 10% of 64 (= 7) at first progressive tier
+    insert_samples(&state, 3);
 
     let err = train_all(&db, &config, 1024, TrainOptions::default()).unwrap_err();
     assert!(matches!(
@@ -484,7 +484,8 @@ fn train_skips_when_growth_below_threshold() {
 #[test]
 fn train_retrains_when_growth_reaches_threshold() {
     let prior_row_count = 100_i64;
-    let growth = DEFAULT_RETRAIN_POLICY.min_growth(prior_row_count) as usize;
+    let dict_count = 1_i64;
+    let growth = DEFAULT_RETRAIN_POLICY.min_growth(prior_row_count, dict_count) as usize;
     let sample_count = prior_row_count as usize + growth;
 
     let db = common::TestDb::open();
@@ -526,7 +527,8 @@ fn train_retrains_when_growth_reaches_threshold() {
 #[test]
 fn train_all_marks_dict_as_current() {
     let prior_row_count = 100_i64;
-    let growth = DEFAULT_RETRAIN_POLICY.min_growth(prior_row_count) as usize;
+    let dict_count = 1_i64;
+    let growth = DEFAULT_RETRAIN_POLICY.min_growth(prior_row_count, dict_count) as usize;
     let sample_count = prior_row_count as usize + growth;
 
     let db = common::TestDb::open();
@@ -576,7 +578,7 @@ fn train_all_marks_dict_as_current() {
 #[test]
 fn decompress_old_dict_after_retrain() {
     let sample_count = 64;
-    let growth = DEFAULT_RETRAIN_POLICY.min_growth(sample_count as i64) as usize;
+    let growth = DEFAULT_RETRAIN_POLICY.min_growth(sample_count as i64, 1) as usize;
     let db = common::TestDb::open();
     let state = db.state();
 
@@ -608,7 +610,7 @@ fn decompress_old_dict_after_retrain() {
 #[test]
 fn compress_uses_current_id_in_header() {
     let sample_count = 64;
-    let growth = DEFAULT_RETRAIN_POLICY.min_growth(sample_count as i64) as usize;
+    let growth = DEFAULT_RETRAIN_POLICY.min_growth(sample_count as i64, 1) as usize;
     let db = common::TestDb::open();
     let state = db.state();
 
@@ -677,6 +679,75 @@ fn train_retrains_with_absolute_policy() {
     let dict_ids = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
     assert_eq!(dict_ids.len(), 1);
     assert_eq!(dict_ids[0].get(), 2);
+}
+
+#[test]
+fn train_retrains_with_progressive_policy_tiers() {
+    let policy = RetrainPolicy::Progressive {
+        start: 10,
+        step: 5,
+        cap: 50,
+    };
+    let prior_row_count = 100_i64;
+
+    // First retrain: 1 dict → 10% → +10 samples
+    let growth_tier0 = policy.min_growth(prior_row_count, 1) as usize;
+    assert_eq!(growth_tier0, 10);
+
+    let sample_count = prior_row_count as usize + growth_tier0;
+    let db = common::TestDb::open();
+    let state = db.state();
+
+    setup_raw_table(&state);
+    insert_samples(&state, sample_count);
+
+    let config = SetupConfig {
+        tables: vec![SetupTable::new(
+            SchemaName::new("raw"),
+            TableName::new("requests_raw"),
+            vec![SetupColumn::new(
+                "data",
+                policy,
+                sample_count,
+                DEFAULT_MAX_SAMPLES,
+            )],
+        )],
+        compression_level: DEFAULT_LEVEL,
+    };
+    setup(&db, &config).unwrap();
+
+    state
+        .as_ref()
+        .batch_execute(&format!(
+            "INSERT INTO raw.__compress_dicts \
+             (id, dict, trained_at, table_name, column_name, row_count) \
+             VALUES (1, X'00', strftime('%s','now'), \
+             'requests_raw', 'data', {prior_row_count})"
+        ))
+        .unwrap();
+
+    let first = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0].get(), 2);
+
+    // Second retrain: 2 dicts → 15% of 110 → +17; +10 is not enough
+    let last_row_count = sample_count as i64;
+    insert_samples(&state, 10);
+    let err = train_all(&db, &config, 1024, TrainOptions::default()).unwrap_err();
+    assert!(matches!(
+        err,
+        SetupError::InvalidConfig(
+            "not enough samples available: {available} < {last} + {retrain_growth}"
+        )
+    ));
+
+    let growth_tier1 = policy.min_growth(last_row_count, 2) as usize;
+    assert_eq!(growth_tier1, 17);
+    insert_samples(&state, growth_tier1 - 10);
+
+    let second = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
+    assert_eq!(second.len(), 1);
+    assert_eq!(second[0].get(), 3);
 }
 
 #[test]
@@ -767,7 +838,12 @@ fn train_by_column_reports_progress() {
             .unwrap();
     }
 
-    let column = SetupColumn::new("data", DEFAULT_RETRAIN_POLICY, sample_count, max_samples);
+    let column = SetupColumn::new(
+        "data",
+        RetrainPolicy::Absolute(10),
+        sample_count,
+        max_samples,
+    );
 
     let table = SetupTable::new(
         SchemaName::new("raw"),

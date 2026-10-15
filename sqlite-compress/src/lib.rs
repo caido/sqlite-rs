@@ -5,7 +5,11 @@ mod setup;
 mod state;
 mod utils;
 
-pub const DEFAULT_RETRAIN_POLICY: RetrainPolicy = RetrainPolicy::Percent(50);
+pub const DEFAULT_RETRAIN_POLICY: RetrainPolicy = RetrainPolicy::Progressive {
+    start: 10,
+    step: 5,
+    cap: 50,
+};
 
 pub use dict::{
     ColumnKey, DictId, TrainOptions, TrainProgress, errors::DictError, train_all, train_by_column,

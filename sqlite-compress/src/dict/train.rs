@@ -216,7 +216,7 @@ fn has_enough_samples<C: AsRef<Connection>>(
 ///
 /// Compares the last stored `row_count` for this column to the current sample
 /// count. No prior dict → retrain. Otherwise need
-/// `last + policy.min_growth(last)` samples.
+/// `last + policy.min_growth(last, dict_count)` samples.
 fn has_retrain_required<C: AsRef<Connection>>(
     connection: &C,
     dict_table: &str,
@@ -233,8 +233,9 @@ fn has_retrain_required<C: AsRef<Connection>>(
                 "SELECT COALESCE(\
                 (SELECT row_count FROM {dict_table} \
                  WHERE table_name = ?1 AND column_name = ?2 \
-                 ORDER BY id DESC LIMIT 1),\
-                -1)",
+                 ORDER BY id DESC LIMIT 1), -1), \
+                (SELECT COUNT(*) FROM {dict_table} \
+                 WHERE table_name = ?1 AND column_name = ?2)",
             ),
             &[
                 SqlValue::Text(table_name.to_string()),
@@ -244,7 +245,14 @@ fn has_retrain_required<C: AsRef<Connection>>(
         .map_err(SetupError::from_conn)?;
 
     let last = first_value(&rows).and_then(SqlValue::as_i64).unwrap_or(0);
-    let required = last + policy.min_growth(last);
+
+    let dict_count = rows
+        .first()
+        .and_then(|r| r.get(1))
+        .and_then(SqlValue::as_i64)
+        .unwrap_or(0);
+
+    let required = last + policy.min_growth(last, dict_count);
 
     if last < 0 || available >= required {
         return Ok(());
