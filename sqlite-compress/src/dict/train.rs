@@ -12,7 +12,7 @@ use crate::{
         DICT_TABLE_NAME,
         types::{ColumnKey, DictId},
     },
-    functions::{CodecError, Level, decompress_raw, decompress_with_decoder},
+    functions::{CodecError, Level, ParsedBlob, decompress_raw, decompress_with_decoder},
     setup::{SetupConfig, SetupConnection, SetupError, SqlIdent},
     state::ExtensionState,
     utils::quote_qualified,
@@ -143,15 +143,11 @@ pub fn train_by_column<C: SetupConnection, F: FnMut(TrainProgress)>(
 
 pub(crate) fn decode_sample(
     state: &ExtensionState,
-    blob: &[u8],
+    blob: Vec<u8>,
     schema: &str,
 ) -> Result<Vec<u8>, CodecError> {
-    let (header, payload) = match Header::parse(blob) {
-        Ok(parsed) => parsed,
-        Err(CodecError::MalformedHeader)
-        | Err(CodecError::UnknownCodec(_))
-        | Err(CodecError::UnknownVersion(_)) => return Ok(blob.to_vec()),
-        Err(e) => return Err(e),
+    let ParsedBlob::Framed(header, payload) = Header::parse_blob(&blob)? else {
+        return Ok(blob);
     };
 
     let dict_id = DictId::from(header.dict_id.get());
@@ -342,7 +338,7 @@ fn build_dictionary<F: FnMut(TrainProgress)>(
                 continue;
             };
 
-            let sample = decode_sample(state, &blob, schema).map_err(|e| {
+            let sample = decode_sample(state, blob, schema).map_err(|e| {
                 SetupError::DictTrain(format!("failed to decode training sample: {e}"))
             })?;
 
