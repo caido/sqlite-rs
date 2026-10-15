@@ -13,7 +13,7 @@ use std::ptr;
 use libsqlite3_sys::{sqlite3, sqlite3_close, sqlite3_open, SQLITE_OK};
 use sqlite_compress::{
     setup, sqlite3_compress_init, train_all, SchemaName, SetupColumn, SetupConfig, SetupConnection,
-    SetupTable, TableName, DEFAULT_LEVEL, DEFAULT_RETRAIN_GROWTH,
+    SetupTable, TableName, DEFAULT_LEVEL, DEFAULT_RETRAIN_POLICY,
 };
 use sqlite_ffi::{Connection, SqlValue};
 
@@ -58,7 +58,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         tables: vec![SetupTable::new(
             schema: SchemaName::new("main"),
             TableName::new("requests"),
-            vec![SetupColumn::new("body", DEFAULT_RETRAIN_GROWTH, 64, 1_000)],
+            vec![SetupColumn::new("body", DEFAULT_RETRAIN_POLICY, 64, 1_000)],
         )],
         compression_level: DEFAULT_LEVEL,
     };

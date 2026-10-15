@@ -1,6 +1,6 @@
 use sqlite_compress::{
-    DEFAULT_LEVEL, DEFAULT_RETRAIN_GROWTH, SchemaName, SetupColumn, SetupConfig, SetupError,
-    SetupTable, TableName, ViewName, setup,
+    DEFAULT_LEVEL, DEFAULT_RETRAIN_POLICY, RetrainPolicy, SchemaName, SetupColumn, SetupConfig,
+    SetupError, SetupTable, TableName, ViewName, setup,
 };
 mod common;
 use common::{DEFAULT_MAX_SAMPLES, DEFAULT_MIN_SAMPLES};
@@ -41,7 +41,7 @@ fn setup_skips_existing_view() {
             TableName::new("requests_raw"),
             vec![SetupColumn::new(
                 "data",
-                DEFAULT_RETRAIN_GROWTH,
+                DEFAULT_RETRAIN_POLICY,
                 DEFAULT_MIN_SAMPLES,
                 DEFAULT_MAX_SAMPLES,
             )],
@@ -85,7 +85,7 @@ fn setup_creates_view() {
             TableName::new("requests_raw"),
             vec![SetupColumn::new(
                 "data",
-                DEFAULT_RETRAIN_GROWTH,
+                DEFAULT_RETRAIN_POLICY,
                 DEFAULT_MIN_SAMPLES,
                 DEFAULT_MAX_SAMPLES,
             )],
@@ -135,13 +135,13 @@ fn setup_creates_one_view_per_table() {
             vec![
                 SetupColumn::new(
                     "data",
-                    DEFAULT_RETRAIN_GROWTH,
+                    DEFAULT_RETRAIN_POLICY,
                     DEFAULT_MIN_SAMPLES,
                     DEFAULT_MAX_SAMPLES,
                 ),
                 SetupColumn::new(
                     "headers",
-                    DEFAULT_RETRAIN_GROWTH,
+                    DEFAULT_RETRAIN_POLICY,
                     DEFAULT_MIN_SAMPLES,
                     DEFAULT_MAX_SAMPLES,
                 ),
@@ -190,7 +190,7 @@ fn setup_rejects_missing_column() {
             TableName::new("requests_raw"),
             vec![SetupColumn::new(
                 "invalid_column",
-                DEFAULT_RETRAIN_GROWTH,
+                DEFAULT_RETRAIN_POLICY,
                 DEFAULT_MIN_SAMPLES,
                 DEFAULT_MAX_SAMPLES,
             )],
@@ -255,7 +255,11 @@ fn setup_rejects_zero_retrain_growth() {
 
     let config = invalid_config(SetupColumn::new(
         "data",
-        0,
+        RetrainPolicy::Progressive {
+            start: 0,
+            step: 5,
+            cap: 50,
+        },
         DEFAULT_MIN_SAMPLES,
         DEFAULT_MAX_SAMPLES,
     ));
@@ -264,6 +268,39 @@ fn setup_rejects_zero_retrain_growth() {
     assert!(matches!(
         err,
         SetupError::InvalidConfig("retrain growth must be greater than zero")
+    ));
+}
+
+#[test]
+fn setup_rejects_retrain_start_above_cap() {
+    let db = common::TestDb::open();
+    let state = db.state();
+
+    state
+        .as_ref()
+        .batch_execute(
+            r#"
+        ATTACH DATABASE ':memory:' AS raw;
+        CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
+        "#,
+        )
+        .unwrap();
+
+    let config = invalid_config(SetupColumn::new(
+        "data",
+        RetrainPolicy::Progressive {
+            start: 60,
+            step: 5,
+            cap: 50,
+        },
+        DEFAULT_MIN_SAMPLES,
+        DEFAULT_MAX_SAMPLES,
+    ));
+
+    let err = setup(&db, &config).unwrap_err();
+    assert!(matches!(
+        err,
+        SetupError::InvalidConfig("retrain start percent must be <= cap")
     ));
 }
 
@@ -284,7 +321,7 @@ fn setup_rejects_zero_min_samples() {
 
     let config = invalid_config(SetupColumn::new(
         "data",
-        DEFAULT_RETRAIN_GROWTH,
+        DEFAULT_RETRAIN_POLICY,
         0,
         DEFAULT_MAX_SAMPLES,
     ));
@@ -313,7 +350,7 @@ fn setup_rejects_zero_max_samples() {
 
     let config = invalid_config(SetupColumn::new(
         "data",
-        DEFAULT_RETRAIN_GROWTH,
+        DEFAULT_RETRAIN_POLICY,
         DEFAULT_MIN_SAMPLES,
         0,
     ));
@@ -340,7 +377,7 @@ fn setup_rejects_max_samples_below_min() {
         )
         .unwrap();
 
-    let config = invalid_config(SetupColumn::new("data", DEFAULT_RETRAIN_GROWTH, 2000, 1000));
+    let config = invalid_config(SetupColumn::new("data", DEFAULT_RETRAIN_POLICY, 2000, 1000));
 
     let err = setup(&db, &config).unwrap_err();
     assert!(matches!(
@@ -371,7 +408,7 @@ fn setup_rejects_view_equal_to_table_name() {
                 TableName::new("requests_raw"),
                 vec![SetupColumn::new(
                     "data",
-                    DEFAULT_RETRAIN_GROWTH,
+                    DEFAULT_RETRAIN_POLICY,
                     DEFAULT_MIN_SAMPLES,
                     DEFAULT_MAX_SAMPLES,
                 )],
@@ -422,7 +459,7 @@ fn setup_rejects_table_occupying_view_name() {
                 TableName::new("requests_data"),
                 vec![SetupColumn::new(
                     "data",
-                    DEFAULT_RETRAIN_GROWTH,
+                    DEFAULT_RETRAIN_POLICY,
                     DEFAULT_MIN_SAMPLES,
                     DEFAULT_MAX_SAMPLES,
                 )],
@@ -464,7 +501,7 @@ fn setup_creates_custom_view_name() {
                 TableName::new("requests_raw"),
                 vec![SetupColumn::new(
                     "data",
-                    DEFAULT_RETRAIN_GROWTH,
+                    DEFAULT_RETRAIN_POLICY,
                     DEFAULT_MIN_SAMPLES,
                     DEFAULT_MAX_SAMPLES,
                 )],
@@ -522,7 +559,7 @@ fn setup_rejects_duplicate_custom_view_names() {
                 TableName::new("requests_raw"),
                 vec![SetupColumn::new(
                     "data",
-                    DEFAULT_RETRAIN_GROWTH,
+                    DEFAULT_RETRAIN_POLICY,
                     DEFAULT_MIN_SAMPLES,
                     DEFAULT_MAX_SAMPLES,
                 )],
@@ -533,7 +570,7 @@ fn setup_rejects_duplicate_custom_view_names() {
                 TableName::new("responses_raw"),
                 vec![SetupColumn::new(
                     "data",
-                    DEFAULT_RETRAIN_GROWTH,
+                    DEFAULT_RETRAIN_POLICY,
                     DEFAULT_MIN_SAMPLES,
                     DEFAULT_MAX_SAMPLES,
                 )],

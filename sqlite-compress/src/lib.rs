@@ -5,15 +5,19 @@ mod setup;
 mod state;
 mod utils;
 
-pub const DEFAULT_RETRAIN_GROWTH: usize = 5000;
+pub const DEFAULT_RETRAIN_POLICY: RetrainPolicy = RetrainPolicy::Progressive {
+    start: 10,
+    step: 5,
+    cap: 50,
+};
 
 pub use dict::{
     ColumnKey, DictId, TrainOptions, TrainProgress, errors::DictError, train_all, train_by_column,
 };
 pub use functions::{CodecError, DEFAULT_LEVEL, Header};
 pub use setup::{
-    ColumnName, SchemaName, SetupColumn, SetupConfig, SetupConnection, SetupError, SetupTable,
-    TableName, ViewName, setup,
+    ColumnName, RetrainPolicy, SchemaName, SetupColumn, SetupConfig, SetupConnection, SetupError,
+    SetupTable, TableName, ViewName, setup,
 };
 use sqlite_ffi::{Connection, SqliteError};
 use sqlite_ffi_macros::sqlite_entrypoint;
