@@ -4,6 +4,7 @@ mod decompress;
 mod errors;
 mod header;
 mod types;
+mod light;
 
 /// Compression level used when configuration does not select another level.
 pub const DEFAULT_LEVEL: types::Level = types::Level::new(3);
@@ -16,3 +17,4 @@ pub use errors::CodecError;
 pub use header::Header;
 pub(crate) use header::ParsedBlob;
 pub use types::Level;
+pub use light::sqlite_decompress_cont;
