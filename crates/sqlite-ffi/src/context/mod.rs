@@ -50,7 +50,7 @@ impl Context {
     }
 
     pub fn result_int64(&self, value: i64) {
-        unsafe { result_int64_raw(self.ctx.as_ptr(), value) };
+        unsafe { result_int_raw(self.ctx.as_ptr(), value) };
     }
 }
 

@@ -14,12 +14,14 @@ mod scan;
 mod utf8;
 
 use matcher::{LikeMatcher, Verdict};
-use scan::{scan, CHUNK};
+use scan::{CHUNK, scan};
 use sqlite_ffi::{Context, SqliteError, Value};
 use zstd::stream::raw::Decoder;
 
 use crate::{
-    cache::get_decoder_in_cache, functions::header::Header, DictError, DictId, ExtensionState,
+    DictError, DictId, ExtensionState,
+    cache::get_decoder_in_cache,
+    functions::{ParsedBlob, header::Header},
 };
 
 pub fn sqlite_clike(context: Context, values: &[Value]) -> Result<(), SqliteError> {
@@ -49,8 +51,13 @@ pub fn sqlite_clike(context: Context, values: &[Value]) -> Result<(), SqliteErro
     let mut compressed = vec![0u8; CHUNK.min(total)];
     blob.read_at(0, &mut compressed)?;
 
-    let (header, _) =
-        Header::parse(&compressed).map_err(|e| SqliteError::Message(e.to_string()))?;
+    let ParsedBlob::Framed(header, _) =
+        Header::parse_blob(&compressed).map_err(|e| SqliteError::Message(e.to_string()))?
+    else {
+        context.result_blob(&compressed);
+        return Ok(());
+    };
+
     let dict_id = DictId::from(header.dict_id.get());
     let header_len = header.header_len as usize;
 
@@ -89,7 +96,7 @@ mod tests {
 
     use std::ptr;
 
-    use libsqlite3_sys::{sqlite3_close, sqlite3_open, SQLITE_OK};
+    use libsqlite3_sys::{SQLITE_OK, sqlite3_close, sqlite3_open};
 
     use crate::Connection;
 
