@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Run tests under Miri"
+cargo +nightly-2026-04-06 miri setup
+cargo +nightly-2026-04-06 miri test -p sqlite-ffi

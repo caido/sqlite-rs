@@ -1,21 +1,22 @@
 use std::collections::HashMap;
 
-use zstd::dict::{DecoderDictionary, EncoderDictionary};
-
-use crate::{cache::lru::DictLru, ColumnKey, DictId};
-
+use crate::{ColumnKey, DictId};
+/// Process-wide map of the current dict id per column (shared across all connections via [`crate::Cache`]).
+///
+/// Prepared encoders/decoders live in the separate process-wide pool, not here.
+///
+/// `current_ids` maps a [`ColumnKey`] to the dict id that `compress` should use. It is
+/// filled by `warm_cache` (latest row in `__compress_dicts`) and `insert_into_caches`
+/// (after training). `clear_current_id` drops the entry when that column has no dictionary.
+/// A missing id is treated as raw zstd (`DictId` 0).
 pub(crate) struct DictCache {
     current_ids: HashMap<ColumnKey, DictId>,
-    pub(crate) encoders: DictLru<EncoderDictionary<'static>>,
-    pub(crate) decoders: DictLru<DecoderDictionary<'static>>,
 }
 
 impl DictCache {
     pub(crate) fn new() -> Self {
         Self {
             current_ids: HashMap::new(),
-            encoders: DictLru::new(),
-            decoders: DictLru::new(),
         }
     }
 

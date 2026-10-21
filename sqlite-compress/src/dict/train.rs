@@ -1,26 +1,72 @@
-use sqlite_ffi::{first_value, sample_bytes, Connection, SqlValue};
-
-use crate::{
-    cache::{get_decoder_in_cache, insert_into_caches},
-    dict::{
-        types::{ColumnKey, DictId},
-        DICT_TABLE_NAME,
-    },
-    functions::{decompress_raw, decompress_with_decoder, CodecError, Level},
-    setup::{SetupConfig, SetupConnection, SetupError, SqlIdent},
-    state::ExtensionState,
-    utils::quote_qualified,
-    Header, SetupColumn, SetupTable,
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
 };
 
-const SAMPLE_BATCH_SIZE: usize = 64;
+use sqlite_ffi::{Connection, SqlValue, first_value, sample_bytes};
 
-pub fn train_all<C: SetupConnection>(
+use crate::{
+    Header, SetupColumn, SetupTable,
+    cache::{get_decoder_in_cache, insert_into_caches},
+    dict::{
+        DICT_TABLE_NAME,
+        types::{ColumnKey, DictId},
+    },
+    functions::{CodecError, Level, ParsedBlob, decompress_raw, decompress_with_decoder},
+    setup::{RetrainPolicy, SetupConfig, SetupConnection, SetupError, SqlIdent},
+    state::ExtensionState,
+    utils::quote_qualified,
+};
+
+pub struct TrainProgress {
+    pub schema: String,
+    pub table: String,
+    pub column: String,
+    pub samples_done: usize,
+    pub samples_target: usize,
+}
+
+pub struct TrainOptions<F> {
+    pub cancel: Option<Arc<AtomicBool>>,
+    pub progress_every: usize,
+    pub on_progress: Option<F>,
+}
+
+impl Default for TrainOptions<fn(TrainProgress)> {
+    fn default() -> Self {
+        Self {
+            cancel: None,
+            progress_every: 0,
+            on_progress: None,
+        }
+    }
+}
+
+const MAX_ROW_SIZE: usize = 256 * 1024;
+
+/// Train one dictionary for every column in `config`.
+///
+/// Each column is handled by [`train_by_column`]. A column is skipped, and omitted from the
+/// returned ids, when it has fewer than `min_samples` non-empty values, or when the sample
+/// count has not grown enough under the column's [`RetrainPolicy`] since the dictionary
+/// already stored for it.
+/// The first dictionary for a column is trained as soon as `min_samples` is reached.
+///
+/// A trained column samples up to `max_samples` of random values, builds a zstd
+/// dictionary of `dict_capacity` bytes, inserts it into `__compress_dicts`, and updates
+/// the in-memory encoder, decoder, and current dict id. The returned [`DictId`] is the
+/// new row id; later `compress` calls for that column use it.
+///
+/// The first error stops the walk. Columns already trained in this call stay stored.
+pub fn train_all<C: SetupConnection, F: FnMut(TrainProgress)>(
     connection: &C,
     config: &SetupConfig,
     dict_capacity: usize,
+    options: TrainOptions<F>,
 ) -> Result<Vec<DictId>, SetupError> {
     let mut dict_ids = Vec::new();
+
+    let mut options = options;
 
     for (table, column) in config.iter_columns() {
         match train_by_column(
@@ -29,6 +75,7 @@ pub fn train_all<C: SetupConnection>(
             column,
             config.compression_level,
             dict_capacity,
+            &mut options,
         )? {
             Some(dict_id) => dict_ids.push(dict_id),
             None => continue,
@@ -38,12 +85,13 @@ pub fn train_all<C: SetupConnection>(
     Ok(dict_ids)
 }
 
-pub fn train_by_column<C: SetupConnection>(
+pub fn train_by_column<C: SetupConnection, F: FnMut(TrainProgress)>(
     connection: &C,
     table: &SetupTable,
     column: &SetupColumn,
     compression_level: Level,
     dict_capacity: usize,
+    options: &mut TrainOptions<F>,
 ) -> Result<Option<DictId>, SetupError> {
     validate_config(table.columns.len(), dict_capacity)?;
 
@@ -59,23 +107,16 @@ pub fn train_by_column<C: SetupConnection>(
 
     let state = ExtensionState::from_db(unsafe { connection.sqlite_handle() })?;
 
-    let (enough, available) =
-        has_enough_samples(&state, &table_name, &column_name, column.min_samples)?;
+    let available = has_enough_samples(&state, &table_name, &column_name, column.min_samples)?;
 
-    if !enough {
-        return Ok(None);
-    }
-
-    if !has_retrain_required(
+    has_retrain_required(
         &state,
         &dict_store,
         key.table(),
         key.column(),
         available,
-        column.retrain_growth,
-    )? {
-        return Ok(None);
-    }
+        column.retrain_policy,
+    )?;
 
     let dictionary = build_dictionary(
         &state,
@@ -84,6 +125,7 @@ pub fn train_by_column<C: SetupConnection>(
         &column_name,
         column.max_samples,
         dict_capacity,
+        options,
     )?;
 
     let dict_id = persist_dictionary(
@@ -102,15 +144,11 @@ pub fn train_by_column<C: SetupConnection>(
 
 pub(crate) fn decode_sample(
     state: &ExtensionState,
-    blob: &[u8],
+    blob: Vec<u8>,
     schema: &str,
 ) -> Result<Vec<u8>, CodecError> {
-    let (header, payload) = match Header::parse(blob) {
-        Ok(parsed) => parsed,
-        Err(CodecError::MalformedHeader)
-        | Err(CodecError::UnknownCodec(_))
-        | Err(CodecError::UnknownVersion(_)) => return Ok(blob.to_vec()),
-        Err(e) => return Err(e),
+    let ParsedBlob::Framed(header, payload) = Header::parse_blob(&blob)? else {
+        return Ok(blob);
     };
 
     let dict_id = DictId::from(header.dict_id.get());
@@ -124,8 +162,7 @@ pub(crate) fn decode_sample(
     decompress_with_decoder(payload, &decoder, len)
 }
 
-/// Validate the config is valid.
-/// It is done by checking the dictionary capacity and the tables and columns configuration.
+/// Rejects configurations that cannot produce a useful dictionary.
 fn validate_config(column_size: usize, dict_capacity: usize) -> Result<(), SetupError> {
     if dict_capacity == 0 {
         return Err(SetupError::InvalidConfig(
@@ -147,7 +184,7 @@ fn has_enough_samples<C: AsRef<Connection>>(
     table_name: &str,
     column_name: &str,
     min_samples: usize,
-) -> Result<(bool, i64), SetupError> {
+) -> Result<i64, SetupError> {
     let connection = connection.as_ref();
 
     let rows = connection
@@ -162,22 +199,28 @@ fn has_enough_samples<C: AsRef<Connection>>(
 
     let count = first_value(&rows).and_then(SqlValue::as_i64).unwrap_or(0);
 
-    Ok((count >= min_samples as i64, count))
+    if count >= min_samples as i64 {
+        return Ok(count);
+    }
+
+    Err(SetupError::InvalidConfig(
+        "not enough samples available: {count} < {min_samples}",
+    ))
 }
 
 /// Check if the retrain is required.
-/// It is done by checking the last row count of the dictionary store.
-/// If the last row count is less than the retrain growth, the retrain is required.
-/// Last stored row_count for this column vs current sample count.
-/// No prior dict → retrain. Otherwise need `last + retrain_growth` samples.
+///
+/// Compares the last stored `row_count` for this column to the current sample
+/// count. No prior dict → retrain. Otherwise need
+/// `last + policy.min_growth(last, dict_count)` samples.
 fn has_retrain_required<C: AsRef<Connection>>(
     connection: &C,
     dict_table: &str,
     table_name: &str,
     column_name: &str,
     available: i64,
-    retrain_growth: usize,
-) -> Result<bool, SetupError> {
+    policy: RetrainPolicy,
+) -> Result<(), SetupError> {
     let connection = connection.as_ref();
 
     let rows = connection
@@ -186,8 +229,9 @@ fn has_retrain_required<C: AsRef<Connection>>(
                 "SELECT COALESCE(\
                 (SELECT row_count FROM {dict_table} \
                  WHERE table_name = ?1 AND column_name = ?2 \
-                 ORDER BY id DESC LIMIT 1),\
-                -1)",
+                 ORDER BY id DESC LIMIT 1), -1), \
+                (SELECT COUNT(*) FROM {dict_table} \
+                 WHERE table_name = ?1 AND column_name = ?2)",
             ),
             &[
                 SqlValue::Text(table_name.to_string()),
@@ -198,70 +242,134 @@ fn has_retrain_required<C: AsRef<Connection>>(
 
     let last = first_value(&rows).and_then(SqlValue::as_i64).unwrap_or(0);
 
-    if last < 0 {
-        return Ok(true);
+    let dict_count = rows
+        .first()
+        .and_then(|r| r.get(1))
+        .and_then(SqlValue::as_i64)
+        .unwrap_or(0);
+
+    let required = last + policy.min_growth(last, dict_count);
+
+    if last < 0 || available >= required {
+        return Ok(());
     }
 
-    Ok(available >= last + retrain_growth as i64)
+    Err(SetupError::InvalidConfig(
+        "not enough samples available: {available} < {last} + {retrain_growth}",
+    ))
+}
+
+/// Samples fetched per random query. Scales with `max_samples` so we keep
+/// roughly ~10 rounds.
+/// Cap at the max number of samples per query.
+fn sample_batch_size(max_samples: usize) -> usize {
+    const TARGET_ROUNDS: usize = 10;
+    const MIN_BATCH: usize = 1;
+    const MAX_BATCH: usize = 10_000;
+
+    (max_samples / TARGET_ROUNDS)
+        .clamp(MIN_BATCH, MAX_BATCH)
+        .min(max_samples.max(1))
 }
 
 /// Build the dictionary from the samples.
-/// It is done by collecting the samples from the tables, and building the dictionary.
+/// It is done by collecting random samples from the tables, and building the dictionary.
 /// Using stream approach to avoid loading all the samples into memory.
-fn build_dictionary(
+fn build_dictionary<F: FnMut(TrainProgress)>(
     state: &ExtensionState,
     schema: &str,
     table_name: &str,
     column_name: &str,
     max_samples: usize,
     dict_capacity: usize,
+    options: &mut TrainOptions<F>,
 ) -> Result<Vec<u8>, SetupError> {
     let mut corpus = Vec::new();
     let mut sizes = Vec::new();
-    let mut offset = 0usize;
     let mut remaining = max_samples;
 
-    while remaining > 0 {
-        let batch_limit = remaining.min(SAMPLE_BATCH_SIZE);
+    let max_rowid = state
+        .connection
+        .query(
+            &format!("SELECT COALESCE(MAX(rowid), 0) FROM {table_name}"),
+            &[],
+        )
+        .map_err(SetupError::from_conn)?;
 
-        let rows = state
-            .connection
-            .query(
-                &format!(
-                    "SELECT {column_name} AS value FROM {table_name} \
-         WHERE {column_name} IS NOT NULL AND length({column_name}) > 0 \
-         ORDER BY rowid DESC \
-         LIMIT ?1 OFFSET ?2"
-                ),
-                &[
-                    SqlValue::Integer(batch_limit as i64),
-                    SqlValue::Integer(offset as i64),
-                ],
-            )
-            .map_err(SetupError::from_conn)?;
+    let max_rowid = first_value(&max_rowid)
+        .and_then(SqlValue::as_i64)
+        .unwrap_or(0);
 
-        if rows.is_empty() {
-            break;
+    if max_rowid <= 0 {
+        return Err(SetupError::DictTrain(
+            "no non-empty samples available".to_string(),
+        ));
+    }
+
+    let mut attempts = 0;
+    let batch = sample_batch_size(max_samples);
+    let rounds_needed = max_samples.div_ceil(batch.max(1));
+    let max_attempts = rounds_needed.saturating_mul(4).max(8);
+
+    while remaining > 0 && attempts < max_attempts {
+        attempts += 1;
+
+        if options
+            .cancel
+            .as_ref()
+            .is_some_and(|c| c.load(Ordering::Relaxed))
+        {
+            return Err(SetupError::Cancelled);
         }
 
-        let batch_len = rows.len();
-        for row in &rows {
-            let Some(blob) = row.first().and_then(sample_bytes) else {
+        let limit = batch.min(remaining) as i64;
+
+        let stream = state.connection.query_stream(
+            &format!(
+                "SELECT {column_name} AS value FROM {table_name} \
+             WHERE rowid >= (abs(random()) % ?1) + 1 \
+               AND {column_name} IS NOT NULL \
+               AND length({column_name}) > 0 \
+               AND length({column_name}) < {MAX_ROW_SIZE} \
+             ORDER BY rowid \
+             LIMIT ?2"
+            ),
+            &[SqlValue::Integer(max_rowid), SqlValue::Integer(limit)],
+        )?;
+
+        for row in stream {
+            let row = row.map_err(SetupError::from_conn)?;
+
+            let Some(value) = row.first() else {
                 continue;
             };
 
-            let sample = decode_sample(state, &blob, schema).map_err(|e| {
+            let Some(blob) = sample_bytes(value) else {
+                continue;
+            };
+
+            let sample = decode_sample(state, blob, schema).map_err(|e| {
                 SetupError::DictTrain(format!("failed to decode training sample: {e}"))
             })?;
 
             corpus.extend_from_slice(&sample);
             sizes.push(sample.len());
+            remaining -= 1;
         }
 
-        offset += batch_len;
-        remaining = remaining.saturating_sub(batch_len);
-        if batch_len < batch_limit {
-            break;
+        let done = max_samples - remaining;
+        if options.progress_every > 0
+            && done > 0
+            && done.is_multiple_of(options.progress_every)
+            && let Some(cb) = options.on_progress.as_mut()
+        {
+            cb(TrainProgress {
+                schema: schema.to_string(),
+                table: table_name.to_string(),
+                column: column_name.to_string(),
+                samples_done: done,
+                samples_target: max_samples,
+            });
         }
     }
 

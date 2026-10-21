@@ -1,4 +1,4 @@
-use zerocopy::{little_endian::U32, FromBytes, Immutable, IntoBytes, KnownLayout, TryFromBytes};
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, TryFromBytes, little_endian::U32};
 
 use crate::{dict::DictId, functions::errors::CodecError};
 
@@ -19,18 +19,36 @@ impl TryFrom<u8> for CodecKind {
     }
 }
 
+/// Binary prefix stored before every compressed payload.
+///
+/// It gives the decoder the version, codec, header_len, dict_id and uncompressed_len.
+/// `header_len` lets later versions append fields while preserving the start of the payload.
 #[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable)]
 #[repr(C)]
 pub struct Header {
+    /// Version of the prefix format understood by this decoder.
     pub version: u8,
+    /// Compression algorithm used for the payload.
     pub codec: u8,
+    /// Number of bytes occupied by the full prefix, including future fields.
     pub header_len: u8,
+    /// Dictionary used for compression; zero denotes a raw Zstandard payload.
     pub dict_id: U32,
+    /// Original byte length used to bound decompression output.
     pub uncompressed_len: U32,
 }
 
+pub(crate) enum ParsedBlob<'a> {
+    /// Header valid + compressed payload
+    Framed(Header, &'a [u8]),
+    /// Not our format → treat as plain text
+    Plain,
+}
+
 impl Header {
+    /// Latest prefix version emitted by this crate.
     pub const VERSION: u8 = 1;
+    /// Size of the fields understood by this version of the prefix.
     pub const PREFIX_SIZE: usize = size_of::<Self>();
 
     pub fn new(dict_id: DictId, uncompressed_len: u32) -> Self {
@@ -47,7 +65,13 @@ impl Header {
         out.extend_from_slice(self.as_bytes());
     }
 
-    pub fn parse(blob: &[u8]) -> Result<(Self, &[u8]), CodecError> {
+    /// Splits a stored value into its prefix and compressed payload.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the prefix is truncated, uses a newer unsupported
+    /// version, or names an unknown codec.
+    fn parse(blob: &[u8]) -> Result<(Self, &[u8]), CodecError> {
         let (header, _) = Self::ref_from_prefix(blob).map_err(|_| CodecError::MalformedHeader)?;
 
         if header.version > Self::VERSION {
@@ -55,7 +79,8 @@ impl Header {
         }
 
         let header_len = header.header_len as usize;
-        // Must cover at least the fields we know how to read.
+        // A newer prefix may append fields, but it cannot omit fields this
+        // decoder reads from the fixed prefix.
         if header_len < Self::PREFIX_SIZE || blob.len() < header_len {
             return Err(CodecError::MalformedHeader);
         }
@@ -65,8 +90,24 @@ impl Header {
 
         Ok((*header, payload))
     }
+
+    pub(crate) fn parse_blob(blob: &[u8]) -> Result<ParsedBlob<'_>, CodecError> {
+        match Self::parse(blob) {
+            Ok((header, payload)) => Ok(ParsedBlob::Framed(header, payload)),
+            Err(CodecError::MalformedHeader)
+            | Err(CodecError::UnknownCodec(_))
+            | Err(CodecError::UnknownVersion(_)) => Ok(ParsedBlob::Plain),
+            Err(e) => Err(e),
+        }
+    }
 }
 
+/// Prefixes a compressed payload with the metadata required to decode it.
+///
+/// # Errors
+///
+/// Returns [`CodecError::PayloadTooLarge`] when the original length cannot be
+/// represented by the on-disk format.
 pub fn wrap(dict_id: DictId, original_len: usize, payload: Vec<u8>) -> Result<Vec<u8>, CodecError> {
     let uncompressed_len = u32::try_from(original_len).map_err(|_| CodecError::PayloadTooLarge)?;
     let header = Header::new(dict_id, uncompressed_len);

@@ -1,11 +1,14 @@
 use sqlite_compress::{
-    setup, train_all, train_by_column, ExtensionState, Header, SchemaName, SetupColumn,
-    SetupConfig, SetupTable, TableName, DEFAULT_LEVEL, DEFAULT_RETRAIN_GROWTH,
+    DEFAULT_LEVEL, DEFAULT_RETRAIN_POLICY, ExtensionState, RetrainPolicy, SchemaName, SetupColumn,
+    SetupConfig, SetupError, SetupTable, TableName, TrainOptions, TrainProgress, setup, train_all,
+    train_by_column,
 };
 
 mod common;
 use common::DEFAULT_MAX_SAMPLES;
-use sqlite_ffi::{first_value, SqlValue};
+use sqlite_ffi::{SqlValue, first_value};
+
+use crate::common::TestDb;
 
 pub fn compress_blob(state: &ExtensionState, data: &[u8]) -> Vec<u8> {
     let rows = state
@@ -30,7 +33,7 @@ pub fn decompress_blob(state: &ExtensionState, blob: &[u8]) -> Vec<u8> {
 }
 
 pub fn header_dict_id(blob: &[u8]) -> u32 {
-    Header::parse(blob).unwrap().0.dict_id.get()
+    u32::from_le_bytes(blob[3..7].try_into().expect("framed header"))
 }
 
 #[test]
@@ -62,22 +65,22 @@ fn train_persists_a_new_dictionary() {
     }
 
     let config = SetupConfig {
-        tables: vec![SetupTable {
-            name: TableName::new("requests_raw"),
-            schema: SchemaName::new("raw"),
-            columns: vec![SetupColumn::new(
+        tables: vec![SetupTable::new(
+            SchemaName::new("raw"),
+            TableName::new("requests_raw"),
+            vec![SetupColumn::new(
                 "data",
-                DEFAULT_RETRAIN_GROWTH,
+                DEFAULT_RETRAIN_POLICY,
                 sample_count,
                 DEFAULT_MAX_SAMPLES,
             )],
-        }],
+        )],
         compression_level: DEFAULT_LEVEL,
     };
 
     setup(&db, &config).unwrap();
 
-    let dict_ids = train_all(&db, &config, 1024).unwrap();
+    let dict_ids = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
 
     let rows = state
         .as_ref()
@@ -135,24 +138,24 @@ fn train_persists_dictionary_per_column() {
     let column = |name: &str| {
         SetupColumn::new(
             name,
-            DEFAULT_RETRAIN_GROWTH,
+            DEFAULT_RETRAIN_POLICY,
             sample_count,
             DEFAULT_MAX_SAMPLES,
         )
     };
 
     let config = SetupConfig {
-        tables: vec![SetupTable {
-            name: TableName::new("requests_raw"),
-            schema: SchemaName::new("raw"),
-            columns: vec![column("data"), column("headers")],
-        }],
+        tables: vec![SetupTable::new(
+            SchemaName::new("raw"),
+            TableName::new("requests_raw"),
+            vec![column("data"), column("headers")],
+        )],
         compression_level: DEFAULT_LEVEL,
     };
 
     setup(&db, &config).unwrap();
 
-    let dict_ids = train_all(&db, &config, 1024).unwrap();
+    let dict_ids = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
     assert_eq!(dict_ids.len(), 2);
 
     let columns = state
@@ -221,31 +224,34 @@ fn train_skips_column_without_enough_samples() {
     }
 
     let config = SetupConfig {
-        tables: vec![SetupTable {
-            name: TableName::new("requests_raw"),
-            schema: SchemaName::new("raw"),
-            columns: vec![
+        tables: vec![SetupTable::new(
+            SchemaName::new("raw"),
+            TableName::new("requests_raw"),
+            vec![
                 SetupColumn::new(
                     "data",
-                    DEFAULT_RETRAIN_GROWTH,
+                    DEFAULT_RETRAIN_POLICY,
                     sample_count,
                     DEFAULT_MAX_SAMPLES,
                 ),
                 SetupColumn::new(
                     "headers",
-                    DEFAULT_RETRAIN_GROWTH,
+                    DEFAULT_RETRAIN_POLICY,
                     sample_count,
                     DEFAULT_MAX_SAMPLES,
                 ),
             ],
-        }],
+        )],
         compression_level: DEFAULT_LEVEL,
     };
 
     setup(&db, &config).unwrap();
 
-    let dict_ids = train_all(&db, &config, 1024).unwrap();
-    assert_eq!(dict_ids.len(), 1);
+    let err = train_all(&db, &config, 1024, TrainOptions::default()).unwrap_err();
+    assert!(matches!(
+        err,
+        SetupError::InvalidConfig("not enough samples available: {count} < {min_samples}")
+    ));
 
     let rows = state
         .as_ref()
@@ -294,24 +300,26 @@ fn train_by_column_persists_one_column() {
             .unwrap();
     }
 
-    let table = SetupTable {
-        name: TableName::new("requests_raw"),
-        schema: SchemaName::new("raw"),
-        columns: vec![
-            SetupColumn::new(
-                "data",
-                DEFAULT_RETRAIN_GROWTH,
-                sample_count,
-                DEFAULT_MAX_SAMPLES,
-            ),
+    let data_column = SetupColumn::new(
+        "data",
+        DEFAULT_RETRAIN_POLICY,
+        sample_count,
+        DEFAULT_MAX_SAMPLES,
+    );
+
+    let table = SetupTable::new(
+        SchemaName::new("raw"),
+        TableName::new("requests_raw"),
+        vec![
+            data_column.clone(),
             SetupColumn::new(
                 "headers",
-                DEFAULT_RETRAIN_GROWTH,
+                DEFAULT_RETRAIN_POLICY,
                 sample_count,
                 DEFAULT_MAX_SAMPLES,
             ),
         ],
-    };
+    );
 
     let config = SetupConfig {
         tables: vec![table.clone()],
@@ -320,12 +328,15 @@ fn train_by_column_persists_one_column() {
 
     setup(&db, &config).unwrap();
 
+    let mut options = TrainOptions::default();
+
     let dict_id = train_by_column(
         &db,
         &config.tables[0],
-        &config.tables[0].columns[0],
+        &data_column,
         config.compression_level,
         1024,
+        &mut options,
     )
     .unwrap();
 
@@ -348,16 +359,16 @@ fn train_by_column_persists_one_column() {
 
 fn sample_config(min_samples: usize) -> SetupConfig {
     SetupConfig {
-        tables: vec![SetupTable {
-            name: TableName::new("requests_raw"),
-            schema: SchemaName::new("raw"),
-            columns: vec![SetupColumn::new(
+        tables: vec![SetupTable::new(
+            SchemaName::new("raw"),
+            TableName::new("requests_raw"),
+            vec![SetupColumn::new(
                 "data",
-                DEFAULT_RETRAIN_GROWTH,
+                DEFAULT_RETRAIN_POLICY,
                 min_samples,
                 DEFAULT_MAX_SAMPLES,
             )],
-        }],
+        )],
         compression_level: DEFAULT_LEVEL,
     }
 }
@@ -401,7 +412,7 @@ fn train_stores_row_count() {
 
     setup(&db, &config).unwrap();
 
-    let dict_ids = train_all(&db, &config, 1024).unwrap();
+    let dict_ids = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
 
     assert_eq!(dict_ids.len(), 1);
 
@@ -445,15 +456,20 @@ fn train_skips_when_growth_below_threshold() {
     let config = sample_config(sample_count);
     setup(&db, &config).unwrap();
 
-    let first = train_all(&db, &config, 1024).unwrap();
+    let first = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
     assert_eq!(first.len(), 1);
     assert_eq!(first[0].get(), 1);
 
-    // +100 samples << RETRAIN_GROWTH (5000)
-    insert_samples(&state, 100);
+    // +3 samples << 10% of 64 (= 7) at first progressive tier
+    insert_samples(&state, 3);
 
-    let second = train_all(&db, &config, 1024).unwrap();
-    assert!(second.is_empty());
+    let err = train_all(&db, &config, 1024, TrainOptions::default()).unwrap_err();
+    assert!(matches!(
+        err,
+        SetupError::InvalidConfig(
+            "not enough samples available: {available} < {last} + {retrain_growth}"
+        )
+    ));
 
     let rows = state
         .as_ref()
@@ -468,7 +484,9 @@ fn train_skips_when_growth_below_threshold() {
 #[test]
 fn train_retrains_when_growth_reaches_threshold() {
     let prior_row_count = 100_i64;
-    let sample_count = (prior_row_count as usize) + DEFAULT_RETRAIN_GROWTH;
+    let dict_count = 1_i64;
+    let growth = DEFAULT_RETRAIN_POLICY.min_growth(prior_row_count, dict_count) as usize;
+    let sample_count = prior_row_count as usize + growth;
 
     let db = common::TestDb::open();
     let state = db.state();
@@ -489,7 +507,7 @@ fn train_retrains_when_growth_reaches_threshold() {
 
     assert_eq!(res.unwrap(), 0);
 
-    let dict_ids = train_all(&db, &config, 1024).unwrap();
+    let dict_ids = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
     assert_eq!(dict_ids.len(), 1);
     assert_eq!(dict_ids[0].get(), 2);
 
@@ -509,7 +527,9 @@ fn train_retrains_when_growth_reaches_threshold() {
 #[test]
 fn train_all_marks_dict_as_current() {
     let prior_row_count = 100_i64;
-    let sample_count = (prior_row_count as usize) + DEFAULT_RETRAIN_GROWTH;
+    let dict_count = 1_i64;
+    let growth = DEFAULT_RETRAIN_POLICY.min_growth(prior_row_count, dict_count) as usize;
+    let sample_count = prior_row_count as usize + growth;
 
     let db = common::TestDb::open();
     let state = db.state();
@@ -530,7 +550,7 @@ fn train_all_marks_dict_as_current() {
         ))
         .unwrap();
 
-    let dict_ids = train_all(&db, &config, 1024).unwrap();
+    let dict_ids = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
     assert_eq!(dict_ids.len(), 1);
     let new_id = dict_ids[0].get();
     assert_eq!(new_id, 2);
@@ -558,6 +578,7 @@ fn train_all_marks_dict_as_current() {
 #[test]
 fn decompress_old_dict_after_retrain() {
     let sample_count = 64;
+    let growth = DEFAULT_RETRAIN_POLICY.min_growth(sample_count as i64, 1) as usize;
     let db = common::TestDb::open();
     let state = db.state();
 
@@ -567,20 +588,16 @@ fn decompress_old_dict_after_retrain() {
     let config = sample_config(sample_count);
     setup(&db, &config).unwrap();
 
-    let first = train_all(&db, &config, 1024).unwrap();
+    let first = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
     assert_eq!(first[0].get(), 1);
 
     let original = b"GET /api/users/42 HTTP/1.1\r\nHost: example.com\r\n\r\n";
     let blob_v1 = compress_blob(&state, original);
     assert_eq!(header_dict_id(&blob_v1), 1);
 
-    state
-        .as_ref()
-        .batch_execute("UPDATE raw.__compress_dicts SET row_count = 1 WHERE id = 1")
-        .unwrap();
-    insert_samples(&state, DEFAULT_RETRAIN_GROWTH);
+    insert_samples(&state, growth);
 
-    let second = train_all(&db, &config, 1024).unwrap();
+    let second = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
     assert_eq!(second[0].get(), 2);
 
     let blob_v2 = compress_blob(&state, original);
@@ -593,6 +610,7 @@ fn decompress_old_dict_after_retrain() {
 #[test]
 fn compress_uses_current_id_in_header() {
     let sample_count = 64;
+    let growth = DEFAULT_RETRAIN_POLICY.min_growth(sample_count as i64, 1) as usize;
     let db = common::TestDb::open();
     let state = db.state();
 
@@ -602,7 +620,7 @@ fn compress_uses_current_id_in_header() {
     let config = sample_config(sample_count);
     setup(&db, &config).unwrap();
 
-    let first = train_all(&db, &config, 1024).unwrap();
+    let first = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
     let id1 = first[0].get();
 
     let payload = b"GET /api/users/7 HTTP/1.1\r\nHost: example.com\r\n\r\n";
@@ -611,20 +629,369 @@ fn compress_uses_current_id_in_header() {
     assert_eq!(decompress_blob(&state, &blob), payload);
 
     // Retraîn → header suit le nouveau current
-    state
-        .as_ref()
-        .batch_execute(&format!(
-            "UPDATE raw.__compress_dicts SET row_count = {} WHERE id = {}",
-            sample_count as i64 - DEFAULT_RETRAIN_GROWTH as i64,
-            id1
-        ))
-        .unwrap();
-    insert_samples(&state, DEFAULT_RETRAIN_GROWTH);
+    insert_samples(&state, growth);
 
-    let second = train_all(&db, &config, 1024).unwrap();
+    let second = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
     let id2 = second[0].get();
     assert_ne!(id2, id1);
 
     let blob2 = compress_blob(&state, payload);
     assert_eq!(header_dict_id(&blob2), id2);
+}
+
+#[test]
+fn train_retrains_with_absolute_policy() {
+    let prior_row_count = 100_i64;
+    let absolute = 25_usize;
+    let sample_count = prior_row_count as usize + absolute;
+
+    let db = common::TestDb::open();
+    let state = db.state();
+
+    setup_raw_table(&state);
+    insert_samples(&state, sample_count);
+
+    let config = SetupConfig {
+        tables: vec![SetupTable::new(
+            SchemaName::new("raw"),
+            TableName::new("requests_raw"),
+            vec![SetupColumn::new(
+                "data",
+                RetrainPolicy::Absolute(absolute),
+                sample_count,
+                DEFAULT_MAX_SAMPLES,
+            )],
+        )],
+        compression_level: DEFAULT_LEVEL,
+    };
+    setup(&db, &config).unwrap();
+
+    state
+        .as_ref()
+        .batch_execute(&format!(
+            "INSERT INTO raw.__compress_dicts \
+             (id, dict, trained_at, table_name, column_name, row_count) \
+             VALUES (1, X'00', strftime('%s','now'), \
+             'requests_raw', 'data', {prior_row_count})"
+        ))
+        .unwrap();
+
+    let dict_ids = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
+    assert_eq!(dict_ids.len(), 1);
+    assert_eq!(dict_ids[0].get(), 2);
+}
+
+#[test]
+fn train_retrains_with_progressive_policy_tiers() {
+    let policy = RetrainPolicy::Progressive {
+        start: 10,
+        step: 5,
+        cap: 50,
+    };
+    let prior_row_count = 100_i64;
+
+    // First retrain: 1 dict → 10% → +10 samples
+    let growth_tier0 = policy.min_growth(prior_row_count, 1) as usize;
+    assert_eq!(growth_tier0, 10);
+
+    let sample_count = prior_row_count as usize + growth_tier0;
+    let db = common::TestDb::open();
+    let state = db.state();
+
+    setup_raw_table(&state);
+    insert_samples(&state, sample_count);
+
+    let config = SetupConfig {
+        tables: vec![SetupTable::new(
+            SchemaName::new("raw"),
+            TableName::new("requests_raw"),
+            vec![SetupColumn::new(
+                "data",
+                policy,
+                sample_count,
+                DEFAULT_MAX_SAMPLES,
+            )],
+        )],
+        compression_level: DEFAULT_LEVEL,
+    };
+    setup(&db, &config).unwrap();
+
+    state
+        .as_ref()
+        .batch_execute(&format!(
+            "INSERT INTO raw.__compress_dicts \
+             (id, dict, trained_at, table_name, column_name, row_count) \
+             VALUES (1, X'00', strftime('%s','now'), \
+             'requests_raw', 'data', {prior_row_count})"
+        ))
+        .unwrap();
+
+    let first = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0].get(), 2);
+
+    // Second retrain: 2 dicts → 15% of 110 → +17; +10 is not enough
+    let last_row_count = sample_count as i64;
+    insert_samples(&state, 10);
+    let err = train_all(&db, &config, 1024, TrainOptions::default()).unwrap_err();
+    assert!(matches!(
+        err,
+        SetupError::InvalidConfig(
+            "not enough samples available: {available} < {last} + {retrain_growth}"
+        )
+    ));
+
+    let growth_tier1 = policy.min_growth(last_row_count, 2) as usize;
+    assert_eq!(growth_tier1, 17);
+    insert_samples(&state, growth_tier1 - 10);
+
+    let second = train_all(&db, &config, 1024, TrainOptions::default()).unwrap();
+    assert_eq!(second.len(), 1);
+    assert_eq!(second[0].get(), 3);
+}
+
+#[test]
+fn second_connection_compress_uses_trained_dict_id() {
+    let sample_count = 64;
+
+    let path = std::env::temp_dir().join(format!(
+        "sqlite-compress-shared-cache-{}.db",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&path);
+    let path_str = path.to_str().unwrap();
+
+    let db_a = TestDb::open_path(path_str);
+    let db_b = TestDb::open_path(path_str);
+
+    let state_a = db_a.state();
+    let state_b = db_b.state();
+
+    let attach = format!(
+        "ATTACH DATABASE '{}' AS raw;
+         CREATE TABLE IF NOT EXISTS raw.requests_raw (
+             id INTEGER PRIMARY KEY,
+             data BLOB
+         );",
+        path_str.replace('\'', "''")
+    );
+
+    state_a.as_ref().batch_execute(&attach).unwrap();
+
+    state_b
+        .as_ref()
+        .batch_execute(&format!(
+            "ATTACH DATABASE '{}' AS raw;",
+            path_str.replace('\'', "''")
+        ))
+        .unwrap();
+
+    insert_samples(&state_a, sample_count);
+
+    let config = sample_config(sample_count);
+    setup(&db_a, &config).unwrap();
+
+    let dict_ids = train_all(&db_a, &config, 1024, TrainOptions::default()).unwrap();
+    let trained_id = dict_ids[0].get();
+    assert_ne!(trained_id, 0);
+
+    let payload = b"GET /api/users/42 HTTP/1.1\r\nHost: example.com\r\n\r\n";
+    let blob = compress_blob(&state_b, payload);
+
+    assert_eq!(
+        header_dict_id(&blob),
+        trained_id,
+        "conn B must use the dict id trained on conn A"
+    );
+    assert_eq!(decompress_blob(&state_b, &blob), payload);
+
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn train_by_column_reports_progress() {
+    let sample_count = 64;
+    let max_samples = 64;
+    let progress_every = 10;
+
+    let db = common::TestDb::open();
+    let state = db.state();
+
+    state
+        .as_ref()
+        .batch_execute(
+            "
+        ATTACH DATABASE ':memory:' AS raw;
+        CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
+        ",
+        )
+        .unwrap();
+
+    for i in 0..sample_count {
+        let sample = format!("GET /api/users/{i} HTTP/1.1\r\nHost: example.com\r\n\r\n");
+        state
+            .as_ref()
+            .execute(
+                "INSERT INTO raw.requests_raw (data) VALUES (?1)",
+                &[SqlValue::Text(sample)],
+            )
+            .unwrap();
+    }
+
+    let column = SetupColumn::new(
+        "data",
+        RetrainPolicy::Absolute(10),
+        sample_count,
+        max_samples,
+    );
+
+    let table = SetupTable::new(
+        SchemaName::new("raw"),
+        TableName::new("requests_raw"),
+        vec![column.clone()],
+    );
+
+    let config = SetupConfig {
+        tables: vec![table.clone()],
+        compression_level: DEFAULT_LEVEL,
+    };
+
+    setup(&db, &config).unwrap();
+
+    let mut reports = Vec::new();
+    let mut options = TrainOptions {
+        cancel: None,
+        progress_every,
+        on_progress: Some(|p: TrainProgress| {
+            reports.push((p.samples_done, p.samples_target));
+        }),
+    };
+
+    let dict_id = train_by_column(
+        &db,
+        &table,
+        &column,
+        config.compression_level,
+        1024,
+        &mut options,
+    )
+    .unwrap();
+
+    assert!(dict_id.is_some());
+    assert!(!reports.is_empty());
+    assert!(reports.iter().all(|&(_, target)| target == max_samples));
+    assert!(
+        reports
+            .iter()
+            .all(|&(done, _)| done > 0 && done.is_multiple_of(progress_every))
+    );
+    assert!(reports.windows(2).all(|w| w[0].0 <= w[1].0));
+}
+
+#[test]
+fn train_cancelled_from_another_thread() {
+    use std::{
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+        thread,
+    };
+
+    use sqlite_compress::SetupError;
+
+    let sample_count = 64;
+    let max_samples = 64;
+
+    let db = common::TestDb::open();
+    let state = db.state();
+
+    state
+        .as_ref()
+        .batch_execute(
+            "
+        ATTACH DATABASE ':memory:' AS raw;
+        CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
+        ",
+        )
+        .unwrap();
+
+    for i in 0..sample_count {
+        let sample = format!("GET /api/users/{i} HTTP/1.1\r\nHost: example.com\r\n\r\n");
+        state
+            .as_ref()
+            .execute(
+                "INSERT INTO raw.requests_raw (data) VALUES (?1)",
+                &[SqlValue::Text(sample)],
+            )
+            .unwrap();
+    }
+
+    let table = SetupTable::new(
+        SchemaName::new("raw"),
+        TableName::new("requests_raw"),
+        vec![SetupColumn::new(
+            "data",
+            DEFAULT_RETRAIN_POLICY,
+            sample_count,
+            max_samples,
+        )],
+    );
+
+    let config = SetupConfig {
+        tables: vec![table],
+        compression_level: DEFAULT_LEVEL,
+    };
+
+    setup(&db, &config).unwrap();
+
+    let cancel = Arc::new(AtomicBool::new(false));
+    let cancel_setter = Arc::clone(&cancel);
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+
+    let handle = thread::spawn(move || {
+        started_rx.recv().unwrap();
+        cancel_setter.store(true, Ordering::Relaxed);
+    });
+
+    let result = train_all(
+        &db,
+        &config,
+        1024,
+        TrainOptions {
+            cancel: Some(cancel),
+            progress_every: 1,
+            on_progress: Some(move |_| {
+                let _ = started_tx.send(());
+            }),
+        },
+    );
+
+    handle.join().unwrap();
+    assert!(matches!(result, Err(SetupError::Cancelled)));
+}
+
+#[test]
+fn decompress_passes_through_plain_text() {
+    let db = common::TestDb::open();
+    let state = db.state();
+
+    state
+        .as_ref()
+        .batch_execute(
+            "
+        ATTACH DATABASE ':memory:' AS raw;
+        CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
+        INSERT INTO raw.requests_raw (data) VALUES (CAST('GET /plain HTTP/1.1' AS BLOB));
+        ",
+        )
+        .unwrap();
+
+    let rows = state
+        .as_ref()
+        .query("SELECT decompress(data, 'raw') FROM raw.requests_raw", &[])
+        .unwrap();
+
+    let out = first_value(&rows).unwrap().as_blob().unwrap();
+    assert_eq!(out, b"GET /plain HTTP/1.1");
 }

@@ -1,6 +1,6 @@
 use sqlite_compress::{
-    setup, SchemaName, SetupColumn, SetupConfig, SetupTable, TableName, DEFAULT_LEVEL,
-    DEFAULT_RETRAIN_GROWTH,
+    DEFAULT_LEVEL, DEFAULT_RETRAIN_POLICY, SchemaName, SetupColumn, SetupConfig, SetupTable,
+    TableName, setup,
 };
 mod common;
 use common::{DEFAULT_MAX_SAMPLES, DEFAULT_MIN_SAMPLES};
@@ -21,16 +21,16 @@ fn setup_table_does_not_exist() {
     assert_eq!(res.unwrap(), 0);
 
     let config = SetupConfig {
-        tables: vec![SetupTable {
-            name: TableName::new("requests_raw"),
-            schema: SchemaName::new("raw"),
-            columns: vec![SetupColumn::new(
+        tables: vec![SetupTable::new(
+            SchemaName::new("raw"),
+            TableName::new("requests_raw"),
+            vec![SetupColumn::new(
                 "data",
-                DEFAULT_RETRAIN_GROWTH,
+                DEFAULT_RETRAIN_POLICY,
                 DEFAULT_MIN_SAMPLES,
                 DEFAULT_MAX_SAMPLES,
             )],
-        }],
+        )],
         compression_level: DEFAULT_LEVEL,
     };
 
@@ -74,16 +74,16 @@ fn setup_table_already_exists() {
         .unwrap();
 
     let config = SetupConfig {
-        tables: vec![SetupTable {
-            name: TableName::new("requests_raw"),
-            schema: SchemaName::new("raw"),
-            columns: vec![SetupColumn::new(
+        tables: vec![SetupTable::new(
+            SchemaName::new("raw"),
+            TableName::new("requests_raw"),
+            vec![SetupColumn::new(
                 "data",
-                DEFAULT_RETRAIN_GROWTH,
+                DEFAULT_RETRAIN_POLICY,
                 DEFAULT_MIN_SAMPLES,
                 DEFAULT_MAX_SAMPLES,
             )],
-        }],
+        )],
         compression_level: sqlite_compress::DEFAULT_LEVEL,
     };
 
@@ -122,7 +122,7 @@ fn setup_creates_dict_table_per_schema() {
     let column = || {
         SetupColumn::new(
             "data",
-            DEFAULT_RETRAIN_GROWTH,
+            DEFAULT_RETRAIN_POLICY,
             DEFAULT_MIN_SAMPLES,
             DEFAULT_MAX_SAMPLES,
         )
@@ -130,16 +130,16 @@ fn setup_creates_dict_table_per_schema() {
 
     let config = SetupConfig {
         tables: vec![
-            SetupTable {
-                name: TableName::new("requests_raw"),
-                schema: SchemaName::new("raw"),
-                columns: vec![column()],
-            },
-            SetupTable {
-                name: TableName::new("requests_raw"),
-                schema: SchemaName::new("archive"),
-                columns: vec![column()],
-            },
+            SetupTable::new(
+                SchemaName::new("raw"),
+                TableName::new("requests_raw"),
+                vec![column()],
+            ),
+            SetupTable::new(
+                SchemaName::new("archive"),
+                TableName::new("requests_raw"),
+                vec![column()],
+            ),
         ],
         compression_level: DEFAULT_LEVEL,
     };

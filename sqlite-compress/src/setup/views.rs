@@ -1,13 +1,13 @@
-use sqlite_ffi::{column_texts, first_value, Connection, SqlValue};
+use sqlite_ffi::{Connection, SqlValue, column_texts, first_value};
 
 use crate::{
+    SetupTable,
     setup::{
-        config::{ColumnName, SchemaName, TableName},
         SetupConfig, SetupError, SqlIdent,
+        config::{ColumnName, SchemaName, TableName},
     },
     state::ExtensionState,
     utils::{quote_identifier, quote_literal},
-    SetupTable,
 };
 
 /// Doing the check if the table exists in the database.
@@ -43,7 +43,6 @@ fn ensure_table_exists<C: AsRef<Connection>>(
 }
 
 /// For each column in the table, check if the column exists in the database.
-/// Based on the table name and the schema.
 fn ensure_column_exist<C: AsRef<Connection>>(
     connection: &C,
     table: &TableName,
@@ -71,6 +70,41 @@ fn ensure_column_exist<C: AsRef<Connection>>(
     Ok(())
 }
 
+/// Ensure the view name is not conflicting with the table name.
+fn ensure_name_is_not_conflicting<C: AsRef<Connection>>(
+    connection: &C,
+    table: &SetupTable,
+) -> Result<(), SetupError> {
+    let connection = connection.as_ref();
+
+    let view_name = table.decoded_view_name();
+    if view_name == table.name.as_str() {
+        return Err(SetupError::NameConflict {
+            name: view_name,
+            existing_type: "table".to_string(),
+        });
+    }
+
+    let rows = connection
+        .query(
+            &format!(
+                "SELECT type FROM {schema}.sqlite_master WHERE name = ?1 COLLATE NOCASE AND type IN ('table', 'index')",
+                schema = table.schema
+            ),
+            &[SqlValue::Text(view_name.clone())],
+        )
+        .map_err(SetupError::from_conn)?;
+
+    if let Some(existing_type) = first_value(&rows).and_then(SqlValue::as_text) {
+        return Err(SetupError::NameConflict {
+            name: view_name,
+            existing_type: existing_type.to_string(),
+        });
+    }
+
+    Ok(())
+}
+
 fn table_column_names(
     db: &Connection,
     schema: &SchemaName,
@@ -86,6 +120,10 @@ fn table_column_names(
     Ok(column_texts(rows))
 }
 
+/// Produces the projection for a decoded view.
+///
+/// Only configured columns are passed to `decompress`; all others retain their
+/// original value and order from SQLite's table metadata.
 fn build_decoded_select_list(
     table_columns: &[String],
     compressed: &std::collections::HashSet<&str>,
@@ -106,10 +144,14 @@ fn build_decoded_select_list(
         .join(", ")
 }
 
+/// Ensure the view exists in the database.
+/// If not, create it.
 fn ensure_table_view_exists<C: AsRef<Connection>>(
     connection: &C,
     table: &SetupTable,
 ) -> Result<(), SetupError> {
+    ensure_name_is_not_conflicting(connection, table)?;
+
     let connection = connection.as_ref();
 
     let table_columns = table_column_names(connection, &table.schema, &table.name)?;

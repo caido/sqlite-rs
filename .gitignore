@@ -1,4 +1,3 @@
 /target
-caido.db
-/samples
-/crates/sqlite-ffi-demo/*
+**/*.rs.bk
+*.pdb
