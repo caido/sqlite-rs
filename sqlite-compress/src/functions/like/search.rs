@@ -1,13 +1,16 @@
-use sqlite_ffi::SqliteBlob;
-use sqlite_ffi::SqliteError;
 use std::io::{self, BufReader};
+
+use sqlite_ffi::{SqliteBlob, SqliteError};
 use zstd::stream::read::Decoder;
 
 use crate::{
     DictError, DictId,
     cache::get_decoder_in_cache,
-    functions::contains::utils::to_sqlite,
-    functions::{ParsedBlob, contains::matcher::Matcher, header::Header},
+    functions::{
+        ParsedBlob,
+        header::Header,
+        like::{matcher::Matcher, utils::to_sqlite},
+    },
     state::ExtensionState,
 };
 

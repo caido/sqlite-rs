@@ -4,16 +4,15 @@ use std::{
 };
 
 use memchr::memmem::Finder;
-use sqlite_ffi::SqliteError;
-
 use regex_automata::{
     Anchored,
     hybrid::dfa::{Cache, DFA},
     nfa::thompson,
     util::{start, syntax},
 };
+use sqlite_ffi::SqliteError;
 
-use crate::functions::contains::utils::{like_to_regex, to_sqlite};
+use crate::functions::like::utils::{like_to_regex, to_sqlite};
 
 const STREAM_CHUNK: usize = 16 * 1024;
 
@@ -22,7 +21,10 @@ pub(crate) enum Matcher {
     /// `%`-only pattern: lowercase literals that must appear in order.
     Literals(Vec<Finder<'static>>),
     /// Pattern with `_`: lazy DFA driven byte by byte across chunks.
-    Dfa { dfa: DFA, cache: RefCell<Cache> },
+    Dfa {
+        dfa: Box<DFA>,
+        cache: Box<RefCell<Cache>>,
+    },
 }
 
 impl Matcher {
@@ -42,7 +44,10 @@ impl Matcher {
             .build(&like_to_regex(pattern))
             .map_err(to_sqlite)?;
         let cache = RefCell::new(dfa.create_cache());
-        Ok(Self::Dfa { dfa, cache })
+        Ok(Self::Dfa {
+            dfa: Box::new(dfa),
+            cache: Box::new(cache),
+        })
     }
 
     pub(crate) fn find_in<R: Read>(&self, reader: R, skip: usize) -> io::Result<bool> {

@@ -72,7 +72,7 @@ impl Read for BlobReader<'_> {
         let n = buf.len().min(remaining);
         self.blob
             .read_at(self.pos, &mut buf[..n])
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+            .map_err(|e| io::Error::other(e.to_string()))?;
         self.pos += n;
         Ok(n)
     }

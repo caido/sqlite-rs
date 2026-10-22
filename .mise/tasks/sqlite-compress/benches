@@ -1,3 +1,0 @@
-#!/usr/bin/env bash
-#MISE description="Benchmarks"
-cargo bench -p sqlite-compress --bench scan      

@@ -1,6 +1,9 @@
 use sqlite_ffi::{Context, SqliteError, Value};
 
-use crate::{functions::contains::{matcher::Matcher, search::search_blob}, state::ExtensionState};
+use crate::{
+    functions::like::{matcher::Matcher, search::search_blob},
+    state::ExtensionState,
+};
 
 const PATTERN_ARG: i32 = 4;
 
@@ -8,14 +11,14 @@ mod matcher;
 mod search;
 mod utils;
 
-/// `decompress_cont(schema, table, column, rowid, pattern, offset) -> 0|1`
+/// `decompress_like(schema, table, column, rowid, pattern, offset) -> 0|1`
 ///
 /// `pattern` uses `LIKE` wildcards (`%`, `_`) and matches anywhere in the
 /// value, ASCII case-insensitively.
-pub fn sqlite_decompress_cont(mut context: Context, values: &[Value]) -> Result<(), SqliteError> {
+pub fn sqlite_decompress_like(mut context: Context, values: &[Value]) -> Result<(), SqliteError> {
     if values.len() < 6 {
         return Err(SqliteError::Message(
-            "decompress_cont expects 6 arguments: schema, table, column, rowid, pattern, offset"
+            "decompress_like expects 6 arguments: schema, table, column, rowid, pattern, offset"
                 .into(),
         ));
     }

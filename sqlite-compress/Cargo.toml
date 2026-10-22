@@ -36,10 +36,3 @@ loadable_extension = [
     "sqlite-ffi/loadable_extension",
     "libsqlite3-sys/loadable_extension",
 ]
-
-[dev-dependencies]
-criterion = "0.5"
-
-[[bench]]
-name = "scan"
-harness = false

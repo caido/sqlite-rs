@@ -1,5 +1,6 @@
-use sqlite_ffi::SqliteError;
 use std::fmt::Write as _;
+
+use sqlite_ffi::SqliteError;
 
 pub(crate) fn to_sqlite(e: impl std::fmt::Display) -> SqliteError {
     SqliteError::Message(e.to_string())
