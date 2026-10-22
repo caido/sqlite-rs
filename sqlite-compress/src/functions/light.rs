@@ -1,7 +1,7 @@
-use std::io::{self, Read};
-
 use memchr::memmem::Finder;
+use sqlite_ffi::SqliteBlob;
 use sqlite_ffi::{Context, SqliteError, Value};
+use std::io::{self, BufReader, Read};
 use zstd::dict::DecoderDictionary;
 use zstd::stream::read::Decoder;
 
@@ -14,31 +14,62 @@ use crate::{
 
 const STREAM_CHUNK: usize = 16 * 1024;
 
-/// `decompress_cont(blob, schema, needle, offset) -> 0|1`
-///
-/// Literal byte substring search (no LIKE wildcards / escape).
-/// `offset` skips that many decompressed bytes before searching (e.g. body_position).
+/// `decompress_cont(schema, table, column, rowid, needle, offset) -> 0|1`
 pub fn sqlite_decompress_cont(context: Context, values: &[Value]) -> Result<(), SqliteError> {
-    if values.len() < 4 {
+    if values.len() < 6 {
         return Err(SqliteError::Message(
-            "decompress_cont expects 4 arguments: blob, schema, needle, offset".into(),
+            "decompress_cont expects 6 arguments: schema, table, column, rowid, needle, offset"
+                .into(),
         ));
     }
 
-    let blob = values[0].to_blob();
-    let schema = values[1].to_text().unwrap_or("raw");
-    let needle = values[2].to_blob();
-    let offset = values[3].to_i64().max(0) as usize;
+    let schema = values[0].to_text()?;
+    let table = values[1].to_text()?;
+    let column = values[2].to_text()?;
+    let rowid = values[3].to_i64();
+    let needle = values[4].to_blob();
+    let offset = values[5].to_i64().max(0) as usize;
 
-    let found = match Header::parse_blob(blob).map_err(|e| SqliteError::Message(e.to_string()))? {
-        ParsedBlob::Plain => contains_bytes(blob, needle, offset),
-        ParsedBlob::Framed(header, payload) => {
+    let state = ExtensionState::from_context(&context)?;
+    let blob = state
+        .connection
+        .open_blob(schema, table, column, rowid, false)?;
+
+    let total = blob.len();
+    if total == 0 {
+        context.result_bool(contains_bytes(&[], needle, offset));
+        return Ok(());
+    }
+
+    // Peek just enough to parse the header (no full materialization).
+    let peek_len = Header::PREFIX_SIZE.min(total);
+    let mut peek = vec![0u8; peek_len];
+    blob.read_at(0, &mut peek)?;
+
+    let found = match Header::parse_blob(&peek) {
+        Ok(ParsedBlob::Plain) | Err(_) if peek_len < Header::PREFIX_SIZE => {
+            contains_streaming(BlobReader::new(&blob, 0), needle, offset)
+                .map_err(|e| SqliteError::Message(e.to_string()))?
+        }
+        Ok(ParsedBlob::Plain) => contains_streaming(BlobReader::new(&blob, 0), needle, offset)
+            .map_err(|e| SqliteError::Message(e.to_string()))?,
+        Ok(ParsedBlob::Framed(header, _)) => {
+            let header_len = header.header_len as usize;
+            if total < header_len {
+                return Err(SqliteError::Message(
+                    "compressed blob is shorter than the header".into(),
+                ));
+            }
+
+            if header_len > peek.len() {
+                peek.resize(header_len, 0);
+                blob.read_at(0, &mut peek)?;
+            }
+
             let dict_id = DictId::from(header.dict_id.get());
-
             let prepared = if dict_id.get() != 0 {
-                let state = ExtensionState::from_context(&context)?;
                 match get_decoder_in_cache(&state, schema, dict_id) {
-                    Ok(decoder) => Some(decoder),
+                    Ok(d) => Some(d),
                     Err(DictError::NotReady) => None,
                     Err(e) => return Err(SqliteError::Message(e.to_string())),
                 }
@@ -46,9 +77,17 @@ pub fn sqlite_decompress_cont(context: Context, values: &[Value]) -> Result<(), 
                 None
             };
 
-            contains_stream_zstd(payload, prepared.as_deref(), needle, offset)
+            let reader = BufReader::new(BlobReader::new(&blob, header_len));
+            let decoder = match prepared.as_deref() {
+                Some(dict) => Decoder::with_prepared_dictionary(reader, dict),
+                None => Decoder::with_dictionary(reader, &[]),
+            }
+            .map_err(|e| SqliteError::Message(e.to_string()))?;
+
+            contains_streaming(decoder, needle, offset)
                 .map_err(|e| SqliteError::Message(e.to_string()))?
         }
+        Err(e) => return Err(SqliteError::Message(e.to_string())),
     };
 
     context.result_bool(found);
@@ -125,4 +164,45 @@ fn contains_stream_zstd(
     .map_err(CodecError::DecompressionFailed)?;
 
     contains_streaming(decoder, needle, offset).map_err(CodecError::DecompressionFailed)
+}
+
+struct BlobReader<'a> {
+    blob: &'a SqliteBlob<'a>,
+    pos: usize,
+    end: usize,
+}
+
+impl<'a> BlobReader<'a> {
+    fn new(blob: &'a SqliteBlob<'a>, start: usize) -> Self {
+        let end = blob.len();
+        Self {
+            blob,
+            pos: start.min(end),
+            end,
+        }
+    }
+
+    fn from_range(blob: &'a SqliteBlob<'a>, start: usize, end: usize) -> Self {
+        let end = end.min(blob.len());
+        Self {
+            blob,
+            pos: start.min(end),
+            end,
+        }
+    }
+}
+
+impl Read for BlobReader<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let remaining = self.end.saturating_sub(self.pos);
+        if remaining == 0 || buf.is_empty() {
+            return Ok(0);
+        }
+        let n = buf.len().min(remaining);
+        self.blob
+            .read_at(self.pos, &mut buf[..n])
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        self.pos += n;
+        Ok(n)
+    }
 }
