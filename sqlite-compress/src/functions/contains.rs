@@ -2,13 +2,12 @@ use memchr::memmem::Finder;
 use sqlite_ffi::SqliteBlob;
 use sqlite_ffi::{Context, SqliteError, Value};
 use std::io::{self, BufReader, Read};
-use zstd::dict::DecoderDictionary;
 use zstd::stream::read::Decoder;
 
 use crate::{
     DictError, DictId,
     cache::get_decoder_in_cache,
-    functions::{ParsedBlob, errors::CodecError, header::Header},
+    functions::{ParsedBlob, header::Header},
     state::ExtensionState,
 };
 
@@ -77,7 +76,7 @@ pub fn sqlite_decompress_cont(context: Context, values: &[Value]) -> Result<(), 
                 None
             };
 
-            let reader = BufReader::new(BlobReader::new(&blob, header_len));
+            let reader = BufReader::with_capacity(64 * 1024, BlobReader::new(&blob, header_len));
             let decoder = match prepared.as_deref() {
                 Some(dict) => Decoder::with_prepared_dictionary(reader, dict),
                 None => Decoder::with_dictionary(reader, &[]),
@@ -148,22 +147,6 @@ fn contains_streaming<R: Read>(mut reader: R, needle: &[u8], mut skip: usize) ->
     }
 
     Ok(false)
-}
-
-/// Stream-decompress then sliding-window search.
-fn contains_stream_zstd(
-    payload: &[u8],
-    dict: Option<&DecoderDictionary<'static>>,
-    needle: &[u8],
-    offset: usize,
-) -> Result<bool, CodecError> {
-    let decoder = match dict {
-        Some(dict) => Decoder::with_prepared_dictionary(payload, dict),
-        None => Decoder::with_dictionary(payload, &[]),
-    }
-    .map_err(CodecError::DecompressionFailed)?;
-
-    contains_streaming(decoder, needle, offset).map_err(CodecError::DecompressionFailed)
 }
 
 struct BlobReader<'a> {
