@@ -1,5 +1,6 @@
 use std::{
     ffi::{CString, c_char, c_int, c_void},
+    io::{self, Read},
     ptr::NonNull,
 };
 
@@ -38,6 +39,42 @@ impl SqliteBlob<'_> {
         }
 
         Ok(())
+    }
+
+    pub fn reader(&self, start: usize) -> BlobReader<'_> {
+        BlobReader::new(self, start)
+    }
+}
+
+pub struct BlobReader<'a> {
+    blob: &'a SqliteBlob<'a>,
+    pos: usize,
+    end: usize,
+}
+
+impl<'a> BlobReader<'a> {
+    fn new(blob: &'a SqliteBlob<'a>, start: usize) -> Self {
+        let end = blob.len();
+        Self {
+            blob,
+            pos: start.min(end),
+            end,
+        }
+    }
+}
+
+impl Read for BlobReader<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let remaining = self.end.saturating_sub(self.pos);
+        if remaining == 0 || buf.is_empty() {
+            return Ok(0);
+        }
+        let n = buf.len().min(remaining);
+        self.blob
+            .read_at(self.pos, &mut buf[..n])
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        self.pos += n;
+        Ok(n)
     }
 }
 

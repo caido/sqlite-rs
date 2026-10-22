@@ -607,6 +607,7 @@ dependencies = [
  "libsqlite3-sys",
  "memchr",
  "parking_lot",
+ "regex-automata",
  "sqlite-ffi",
  "sqlite-ffi-macros",
  "thiserror",
