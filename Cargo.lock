@@ -96,7 +96,6 @@ name = "matcher"
 version = "0.1.0"
 dependencies = [
  "memchr",
- "regex-automata",
  "thiserror",
 ]
 
