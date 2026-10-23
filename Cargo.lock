@@ -92,6 +92,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "matcher"
+version = "0.1.0"
+dependencies = [
+ "memchr",
+ "thiserror",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -232,6 +240,7 @@ name = "sqlite-compress"
 version = "0.1.0"
 dependencies = [
  "libsqlite3-sys",
+ "matcher",
  "parking_lot",
  "sqlite-ffi",
  "sqlite-ffi-macros",
