@@ -2,6 +2,7 @@ mod compress;
 mod decompress;
 mod errors;
 mod header;
+#[cfg(feature = "like")]
 mod like;
 mod types;
 
@@ -14,5 +15,6 @@ pub(crate) use decompress::{decompress_raw, decompress_with_decoder};
 pub use errors::CodecError;
 pub use header::Header;
 pub(crate) use header::ParsedBlob;
+#[cfg(feature = "like")]
 pub use like::sqlite_decompress_like;
 pub use types::Level;

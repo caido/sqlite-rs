@@ -34,6 +34,7 @@ pub fn sqlite3_compress_init(connection: Connection) -> Result<(), SqliteError> 
 
     connection.create_function("decompress", 2, functions::sqlite_decompress)?;
 
+    #[cfg(feature = "like")]
     connection.create_function("decompress_like", 6, functions::sqlite_decompress_like)?;
 
     Ok(())

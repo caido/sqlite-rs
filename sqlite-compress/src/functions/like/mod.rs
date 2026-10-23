@@ -1,15 +1,14 @@
+use matcher::Matcher;
 use sqlite_ffi::{Context, SqliteError, Value};
 
 use crate::{
-    functions::like::{matcher::Matcher, search::search_blob},
+    functions::like::search::{search_blob, to_sqlite},
     state::ExtensionState,
 };
 
 const PATTERN_ARG: i32 = 4;
 
-mod matcher;
 mod search;
-mod utils;
 
 /// `decompress_like(schema, table, column, rowid, pattern, offset) -> 0|1`
 ///
@@ -39,7 +38,7 @@ pub fn sqlite_decompress_like(mut context: Context, values: &[Value]) -> Result<
     let found = match aux.get() {
         Ok(matcher) => search_blob(&state, schema, &blob, matcher, offset)?,
         Err(_) => {
-            let matcher = Matcher::compile(pattern)?;
+            let matcher = Matcher::compile(pattern).map_err(to_sqlite)?;
             let found = search_blob(&state, schema, &blob, &matcher, offset)?;
             aux.set(matcher);
             found

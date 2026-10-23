@@ -14,20 +14,14 @@ thiserror = { workspace = true }
 libsqlite3-sys = { workspace = true }
 sqlite-ffi = { workspace = true }
 sqlite-ffi-macros = { workspace = true }
-memchr = "2.8.3"
-regex-automata = { version = "0.4", default-features = false, features = [
-    "std",
-    "syntax",
-    "unicode",
-    "hybrid",
-    "perf-inline",
-] }
+matcher = { workspace = true, optional = true }
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [features]
 default = ["bundled"]
+like = ["dep:matcher"]
 bundled = [
     "sqlite-ffi/bundled",
     "libsqlite3-sys/bundled",

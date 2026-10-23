@@ -37,6 +37,7 @@ impl SqliteError {
     }
 
     /// # Safety
+    /// `db` is the database connection pointer passed by SQLite into the C entrypoint
     #[cold]
     pub(crate) unsafe fn from_db(db: *mut sqlite3, operation: &'static str, code: i32) -> Self {
         let message = unsafe {

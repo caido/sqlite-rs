@@ -10,14 +10,16 @@ use regex_automata::{
     nfa::thompson,
     util::{start, syntax},
 };
-use sqlite_ffi::SqliteError;
 
-use crate::functions::like::utils::{like_to_regex, to_sqlite};
+use crate::{
+    errors::MatcherError,
+    utils::{like_literal_segments, like_to_regex},
+};
 
 const STREAM_CHUNK: usize = 16 * 1024;
 
 /// Compiled `LIKE` pattern, cached across rows through SQLite auxdata.
-pub(crate) enum Matcher {
+pub enum Matcher {
     /// `%`-only pattern: lowercase literals that must appear in order.
     Literals(Vec<Finder<'static>>),
     /// Pattern with `_`: lazy DFA driven byte by byte across chunks.
@@ -28,11 +30,10 @@ pub(crate) enum Matcher {
 }
 
 impl Matcher {
-    pub(crate) fn compile(pattern: &[u8]) -> Result<Self, SqliteError> {
-        if !pattern.contains(&b'_') {
-            let finders = pattern
-                .split(|&b| b == b'%')
-                .filter(|s| !s.is_empty())
+    pub fn compile(pattern: &[u8]) -> Result<Self, MatcherError> {
+        if let Some(segments) = like_literal_segments(pattern) {
+            let finders = segments
+                .into_iter()
                 .map(|s| Finder::new(&s.to_ascii_lowercase()).into_owned())
                 .collect();
             return Ok(Self::Literals(finders));
@@ -42,15 +43,17 @@ impl Matcher {
             .syntax(syntax::Config::new().utf8(false))
             .thompson(thompson::Config::new().utf8(false))
             .build(&like_to_regex(pattern))
-            .map_err(to_sqlite)?;
+            .map_err(|e| MatcherError::Pattern(e.to_string()))?;
+
         let cache = RefCell::new(dfa.create_cache());
+
         Ok(Self::Dfa {
             dfa: Box::new(dfa),
             cache: Box::new(cache),
         })
     }
 
-    pub(crate) fn find_in<R: Read>(&self, reader: R, skip: usize) -> io::Result<bool> {
+    pub fn find_in<R: Read>(&self, reader: R, skip: usize) -> Result<bool, MatcherError> {
         match self {
             Self::Literals(finders) => find_literals(reader, finders, skip),
             Self::Dfa { dfa, cache } => find_dfa(reader, dfa, &mut cache.borrow_mut(), skip),
@@ -67,7 +70,7 @@ fn find_literals<R: Read>(
     mut reader: R,
     finders: &[Finder<'static>],
     mut skip: usize,
-) -> io::Result<bool> {
+) -> Result<bool, MatcherError> {
     let Some(longest) = finders.iter().map(|f| f.needle().len()).max() else {
         return Ok(true);
     };
@@ -115,7 +118,7 @@ fn find_dfa<R: Read>(
     dfa: &DFA,
     cache: &mut Cache,
     mut skip: usize,
-) -> io::Result<bool> {
+) -> Result<bool, MatcherError> {
     let mut sid = dfa
         .start_state(cache, &start::Config::new().anchored(Anchored::No))
         .map_err(io::Error::other)?;
@@ -147,7 +150,7 @@ fn find_dfa<R: Read>(
                     return Ok(false);
                 }
                 if sid.is_quit() {
-                    return Err(io::Error::other("pattern DFA quit"));
+                    return Err(MatcherError::Io(io::Error::other("pattern DFA quit")));
                 }
             }
         }

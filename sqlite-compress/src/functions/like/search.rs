@@ -1,16 +1,13 @@
 use std::io::{self, BufReader};
 
+use matcher::Matcher;
 use sqlite_ffi::{SqliteBlob, SqliteError};
-use zstd::stream::read::Decoder;
+use zstd::{stream::read::Decoder, zstd_safe};
 
 use crate::{
     DictError, DictId,
     cache::get_decoder_in_cache,
-    functions::{
-        ParsedBlob,
-        header::Header,
-        like::{matcher::Matcher, utils::to_sqlite},
-    },
+    functions::{ParsedBlob, header::Header},
     state::ExtensionState,
 };
 
@@ -33,9 +30,9 @@ pub(crate) fn search_blob(
 
     match Header::parse_blob(&peek) {
         Ok(ParsedBlob::Plain) | Err(_) if peek_len < Header::PREFIX_SIZE => {
-            matcher.find_in(blob.reader(0), offset).map_err(to_sqlite)
+            matcher.find_in(blob.reader(offset), 0).map_err(to_sqlite)
         }
-        Ok(ParsedBlob::Plain) => matcher.find_in(blob.reader(0), offset).map_err(to_sqlite),
+        Ok(ParsedBlob::Plain) => matcher.find_in(blob.reader(offset), 0).map_err(to_sqlite),
         Ok(ParsedBlob::Framed(header, _)) => {
             let header_len = header.header_len as usize;
 
@@ -50,7 +47,8 @@ pub(crate) fn search_blob(
                 None
             };
 
-            let reader = BufReader::with_capacity(64 * 1024, blob.reader(header_len));
+            let reader =
+                BufReader::with_capacity(zstd_safe::DCtx::in_size(), blob.reader(header_len));
             let decoder = match prepared.as_deref() {
                 Some(dict) => Decoder::with_prepared_dictionary(reader, dict),
                 None => Decoder::with_dictionary(reader, &[]),
@@ -61,4 +59,8 @@ pub(crate) fn search_blob(
         }
         Err(e) => Err(SqliteError::Message(e.to_string())),
     }
+}
+
+pub(crate) fn to_sqlite(e: impl std::fmt::Display) -> SqliteError {
+    SqliteError::Message(e.to_string())
 }
