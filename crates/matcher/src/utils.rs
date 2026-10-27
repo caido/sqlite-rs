@@ -3,7 +3,7 @@ use memchr::memmem::Finder;
 /// One piece of a compiled `LIKE` pattern.
 pub enum Segment {
     /// ASCII-lowercased bytes that must appear verbatim.
-    Literal(Finder<'static>),
+    Literal(Box<Finder<'static>>),
     /// `%`: any run of bytes, possibly empty.
     Skip,
     /// `_`: one UTF-8 character, or one byte when the sequence is invalid.
@@ -54,7 +54,7 @@ fn push_literal(segments: &mut Vec<Segment>, cur: &mut Vec<u8>) {
         return;
     }
     cur.make_ascii_lowercase();
-    segments.push(Segment::Literal(Finder::new(cur).into_owned()));
+    segments.push(Segment::Literal(Box::new(Finder::new(cur).into_owned())));
     cur.clear();
 }
 

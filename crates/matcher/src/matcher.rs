@@ -27,7 +27,7 @@ impl Matcher {
         let finders = segments
             .into_iter()
             .filter_map(|s| match s {
-                Segment::Literal(f) => Some(f),
+                Segment::Literal(f) => Some(*f),
                 _ => None,
             })
             .collect();
