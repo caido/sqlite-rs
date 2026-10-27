@@ -21,6 +21,7 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = ["bundled"]
+dict_id_functions = []
 like = ["dep:matcher"]
 bundled = [
     "sqlite-ffi/bundled",

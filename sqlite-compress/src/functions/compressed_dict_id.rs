@@ -2,13 +2,6 @@ use sqlite_ffi::{Context, SqliteError, Value};
 
 use crate::functions::{ParsedBlob, errors::CodecError, header::Header};
 
-fn dict_id_from_blob(blob: &[u8]) -> Result<Option<u32>, CodecError> {
-    match Header::parse_blob(blob)? {
-        ParsedBlob::Framed(header, _) => Ok(Some(header.dict_id.get())),
-        ParsedBlob::Plain => Ok(None),
-    }
-}
-
 /// SQLite callback for `compressed_dict_id(blob)`.
 ///
 /// Returns the dictionary ID stored in the blob header, or NULL if the blob
@@ -20,6 +13,13 @@ pub fn sqlite_compressed_dict_id(context: Context, values: &[Value]) -> Result<(
     }
 
     Ok(())
+}
+
+fn dict_id_from_blob(blob: &[u8]) -> Result<Option<u32>, CodecError> {
+    match Header::parse_blob(blob)? {
+        ParsedBlob::Framed(header, _) => Ok(Some(header.dict_id.get())),
+        ParsedBlob::Plain => Ok(None),
+    }
 }
 
 #[cfg(test)]
