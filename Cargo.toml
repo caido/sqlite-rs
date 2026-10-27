@@ -3,7 +3,8 @@ members = [
   "sqlite-compress",
   "reglite",
   "crates/sqlite-ffi",
-  "crates/sqlite-ffi-macros",
+  "crates/sqlite-ffi-macros", 
+  "crates/matcher",
 ]
 resolver = "2"
 
@@ -12,3 +13,4 @@ thiserror = "2.0"
 libsqlite3-sys = { version = "=0.30.1", features = ["bundled"], package = "libsqlite3-sys" }
 sqlite-ffi = { version = "0.1.0", path = "crates/sqlite-ffi", default-features = false }
 sqlite-ffi-macros = { version = "0.1.0", path = "crates/sqlite-ffi-macros" }
+matcher = { version = "0.1.0", path = "crates/matcher" }
