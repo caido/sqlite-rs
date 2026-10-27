@@ -94,8 +94,8 @@ fn fast_path_ordered_segments<R: Read>(
     }
 }
 
-/// Matches each `%`-separated group at its leftmost position, over a buffer
-/// holding everything read so far.
+/// Matches each `%`-separated group at its leftmost position, using a bounded
+/// buffer that retains only bytes needed by the current group.
 ///
 /// The leftmost match of a group leaves the most room for the next ones, so
 /// backtracking never crosses a `Skip`: on mismatch, only the group's start
@@ -126,7 +126,8 @@ fn slow_path_with_any<R: Read>(
             }
             Group::Missing => return Ok(false),
             Group::Pending(from) => {
-                pos = from;
+                buf.drain(..from);
+                pos = 0;
                 eof = !read_more(&mut reader, &mut buf, &mut skip)?;
             }
         }
