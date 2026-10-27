@@ -3,6 +3,7 @@ mod pool;
 mod prepared;
 
 pub(crate) use connection::DictCache;
+pub(crate) use pool::clear;
 pub(crate) use prepared::{
     get_decoder_in_cache, get_encoder_in_cache, insert_into_caches, warm_cache,
 };

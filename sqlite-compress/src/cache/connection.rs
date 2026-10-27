@@ -31,4 +31,8 @@ impl DictCache {
     pub(crate) fn clear_current_id(&mut self, column: &ColumnKey) {
         self.current_ids.remove(column);
     }
+
+    pub(crate) fn clear(&mut self) {
+        self.current_ids.clear();
+    }
 }

@@ -58,3 +58,12 @@ impl ExtensionState {
         Ok(Self { cache, connection })
     }
 }
+
+/// Clear the in-memory dictionary caches.
+///
+/// Stored dictionaries in `__compress_dicts` are not affected. They will be loaded
+/// into the caches again when needed.
+pub fn clear_dict_cache() {
+    SHARED.0.lock().clear();
+    crate::cache::clear();
+}

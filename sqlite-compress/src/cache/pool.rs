@@ -90,3 +90,8 @@ pub(crate) fn insert_prepared(key: DictKey, dictionary: &[u8], level: Level) {
         Arc::new(DecoderDictionary::copy(dictionary)),
     );
 }
+
+pub(crate) fn clear() {
+    ENCODERS.lock().clear();
+    DECODERS.lock().clear();
+}
