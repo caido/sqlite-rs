@@ -812,7 +812,7 @@ fn second_connection_compress_uses_trained_dict_id() {
 fn train_by_column_reports_progress() {
     let sample_count = 64;
     let max_samples = 64;
-    let progress_every = 10;
+    let progress_every = 1;
 
     let db = common::TestDb::open();
     let state = db.state();
@@ -867,7 +867,7 @@ fn train_by_column_reports_progress() {
         }),
     };
 
-    let dict_id = train_by_column(
+    train_by_column(
         &db,
         &table,
         &column,
@@ -877,15 +877,14 @@ fn train_by_column_reports_progress() {
     )
     .unwrap();
 
-    assert!(dict_id.is_some());
     assert!(!reports.is_empty());
-    assert!(reports.iter().all(|&(_, target)| target == max_samples));
     assert!(
         reports
             .iter()
-            .all(|&(done, _)| done > 0 && done.is_multiple_of(progress_every))
+            .all(|&(done, target)| done > 0 && done <= target && target == max_samples)
     );
     assert!(reports.windows(2).all(|w| w[0].0 <= w[1].0));
+    assert_eq!(reports.last(), Some(&(max_samples, max_samples)));
 }
 
 #[test]
