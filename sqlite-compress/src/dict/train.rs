@@ -203,9 +203,7 @@ fn has_enough_samples<C: AsRef<Connection>>(
         return Ok(count);
     }
 
-    Err(SetupError::InvalidConfig(
-        "not enough samples available: {count} < {min_samples}",
-    ))
+    Err(SetupError::InsufficientSamples { count, min_samples })
 }
 
 /// Check if the retrain is required.

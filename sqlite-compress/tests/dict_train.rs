@@ -250,7 +250,10 @@ fn train_skips_column_without_enough_samples() {
     let err = train_all(&db, &config, 1024, TrainOptions::default()).unwrap_err();
     assert!(matches!(
         err,
-        SetupError::InvalidConfig("not enough samples available: {count} < {min_samples}")
+        SetupError::InsufficientSamples {
+            count: 0,
+            min_samples: 64
+        }
     ));
 
     let rows = state

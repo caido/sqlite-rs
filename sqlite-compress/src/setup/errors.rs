@@ -14,6 +14,8 @@ pub enum SetupError {
     ColumnNotFound { table: String, column: String },
     #[error("invalid config: {0}")]
     InvalidConfig(&'static str),
+    #[error("invalid config: not enough samples available: {count} < {min_samples}")]
+    InsufficientSamples { count: i64, min_samples: usize },
     #[error("dict train error: {0}")]
     DictTrain(String),
     #[error("connection state missing")]
