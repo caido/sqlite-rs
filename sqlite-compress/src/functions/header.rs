@@ -28,10 +28,12 @@ impl TryFrom<u8> for CodecKind {
 pub struct Header {
     /// Version of the prefix format understood by this decoder.
     pub version: u8,
-    /// Compression algorithm used for the payload.
-    pub codec: u8,
     /// Number of bytes occupied by the full prefix, including future fields.
     pub header_len: u8,
+    /// Compression algorithm used for the payload.
+    pub codec: u8,
+    /// Explicit padding to ensure 4-byte alignment.
+    pub padding: u8,
     /// Dictionary used for compression; zero denotes a raw Zstandard payload.
     pub dict_id: U32,
     /// Original byte length used to bound decompression output.
@@ -54,8 +56,9 @@ impl Header {
     pub fn new(dict_id: DictId, uncompressed_len: u32) -> Self {
         Self {
             version: Self::VERSION,
-            codec: CodecKind::Zstd as u8,
             header_len: Self::PREFIX_SIZE as u8,
+            codec: CodecKind::Zstd as u8,
+            padding: 0,
             dict_id: U32::new(dict_id.get()),
             uncompressed_len: U32::new(uncompressed_len),
         }
