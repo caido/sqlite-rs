@@ -33,7 +33,7 @@ pub fn decompress_blob(state: &ExtensionState, blob: &[u8]) -> Vec<u8> {
 }
 
 pub fn header_dict_id(blob: &[u8]) -> u32 {
-    u32::from_le_bytes(blob[3..7].try_into().expect("framed header"))
+    u32::from_le_bytes(blob[4..8].try_into().expect("framed header"))
 }
 
 #[test]
