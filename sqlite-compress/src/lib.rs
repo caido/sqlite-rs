@@ -14,7 +14,7 @@ pub const DEFAULT_RETRAIN_POLICY: RetrainPolicy = RetrainPolicy::Progressive {
 pub use dict::{
     ColumnKey, DictId, TrainOptions, TrainProgress, errors::DictError, train_all, train_by_column,
 };
-pub use functions::{CodecError, DEFAULT_LEVEL, Header};
+pub use functions::{CodecError, CodecKind, DEFAULT_LEVEL, Header};
 pub use setup::{
     ColumnName, RetrainPolicy, SchemaName, SetupColumn, SetupConfig, SetupConnection, SetupError,
     SetupTable, TableName, ViewName, setup,

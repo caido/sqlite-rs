@@ -9,7 +9,7 @@ use crate::{
     functions::{
         ParsedBlob,
         errors::CodecError::{self},
-        header::Header,
+        header::{CodecKind, Header},
     },
     state::ExtensionState,
 };
@@ -58,21 +58,27 @@ pub fn sqlite_decompress(context: Context, values: &[Value]) -> Result<(), Sqlit
     let dict_id = DictId::from(header.dict_id.get());
     let len = header.uncompressed_len.get() as usize;
 
-    let decompressed = if dict_id.get() != 0 {
-        let state = ExtensionState::from_context(&context)?;
+    let codec =
+        CodecKind::try_from(header.codec).map_err(|e| SqliteError::Message(e.to_string()))?;
 
-        let decoder = get_decoder_in_cache(&state, schema, dict_id);
+    let decompressed = match codec {
+        CodecKind::Plain => payload.to_vec(),
+        CodecKind::Zstd => {
+            if dict_id.get() != 0 {
+                let state = ExtensionState::from_context(&context)?;
+                let decoder = get_decoder_in_cache(&state, schema, dict_id);
 
-        match decoder {
-            Ok(decoder) => decompress_with_decoder(payload, &decoder, len)
-                .map_err(|e| SqliteError::Message(e.to_string()))?,
-            Err(DictError::NotReady) => {
+                match decoder {
+                    Ok(decoder) => decompress_with_decoder(payload, &decoder, len)
+                        .map_err(|e| SqliteError::Message(e.to_string()))?,
+                    Err(DictError::NotReady) => decompress_raw(payload, len)
+                        .map_err(|e| SqliteError::Message(e.to_string()))?,
+                    Err(e) => return Err(SqliteError::Message(e.to_string())),
+                }
+            } else {
                 decompress_raw(payload, len).map_err(|e| SqliteError::Message(e.to_string()))?
             }
-            Err(e) => return Err(SqliteError::Message(e.to_string())),
         }
-    } else {
-        decompress_raw(payload, len).map_err(|e| SqliteError::Message(e.to_string()))?
     };
 
     context.result_blob(&decompressed);
