@@ -304,12 +304,35 @@ mod tests {
     }
 
     #[test]
-    fn case_sensitive_mode_matches_literals_exactly() {
-        assert!(matches_case_sensitive("hello%world", b"hello--world"));
-        assert!(!matches_case_sensitive("hello%world", b"Hello--world"));
+    fn case_sensitive_ordered_literals() {
+        assert!(matches_case_sensitive("needle%tail", b"needle---tail"));
+        assert!(!matches_case_sensitive("needle%tail", b"NEEDLE---tail"));
+        assert!(!matches_case_sensitive("needle%tail", b"needle---TAIL"));
+    }
 
-        assert!(matches_case_sensitive("h_llo", b"hello"));
-        assert!(!matches_case_sensitive("h_llo", b"Hello"));
+    #[test]
+    fn case_sensitive_literals_with_any_and_skip() {
+        assert!(matches_case_sensitive("a_%Z", b"--aX---Z--"));
+        assert!(!matches_case_sensitive("a_%Z", b"--aX---z--"));
+        assert!(!matches_case_sensitive("a_%Z", b"--AX---Z--"));
+    }
+
+    #[test]
+    fn case_sensitive_matches_span_chunks() {
+        for pattern in ["needle%tail", "ne_dle%tail"] {
+            let matcher = Matcher::compile(pattern.as_bytes(), true);
+
+            assert!(matcher.find_in(Trickle(b"..needle..tail.."), 0).unwrap());
+            assert!(!matcher.find_in(Trickle(b"..needle..TAIL.."), 0).unwrap());
+        }
+    }
+
+    #[test]
+    fn case_sensitive_offset_skips_prefix() {
+        let matcher = Matcher::compile(b"needle", true);
+
+        assert!(!matcher.find_in(&b"NEEDLE"[..], 0).unwrap());
+        assert!(matcher.find_in(&b"NEEDLE--needle"[..], 8).unwrap());
     }
 
     #[test]

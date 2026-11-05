@@ -80,16 +80,19 @@ fn setup_creates_view() {
         .unwrap();
 
     let config = SetupConfig {
-        tables: vec![SetupTable::new(
-            SchemaName::new("raw"),
-            TableName::new("requests_raw"),
-            vec![SetupColumn::new(
-                "data",
-                DEFAULT_RETRAIN_POLICY,
-                DEFAULT_MIN_SAMPLES,
-                DEFAULT_MAX_SAMPLES,
-            )],
-        )],
+        tables: vec![
+            SetupTable::new(
+                SchemaName::new("raw"),
+                TableName::new("requests_raw"),
+                vec![SetupColumn::new(
+                    "data",
+                    DEFAULT_RETRAIN_POLICY,
+                    DEFAULT_MIN_SAMPLES,
+                    DEFAULT_MAX_SAMPLES,
+                )],
+            )
+            .with_view_name(ViewName::new("__compress_decoded_requests_raw")),
+        ],
         compression_level: DEFAULT_LEVEL,
     };
 
@@ -129,24 +132,27 @@ fn setup_creates_one_view_per_table() {
         .unwrap();
 
     let config = SetupConfig {
-        tables: vec![SetupTable::new(
-            SchemaName::new("raw"),
-            TableName::new("requests_raw"),
-            vec![
-                SetupColumn::new(
-                    "data",
-                    DEFAULT_RETRAIN_POLICY,
-                    DEFAULT_MIN_SAMPLES,
-                    DEFAULT_MAX_SAMPLES,
-                ),
-                SetupColumn::new(
-                    "headers",
-                    DEFAULT_RETRAIN_POLICY,
-                    DEFAULT_MIN_SAMPLES,
-                    DEFAULT_MAX_SAMPLES,
-                ),
-            ],
-        )],
+        tables: vec![
+            SetupTable::new(
+                SchemaName::new("raw"),
+                TableName::new("requests_raw"),
+                vec![
+                    SetupColumn::new(
+                        "data",
+                        DEFAULT_RETRAIN_POLICY,
+                        DEFAULT_MIN_SAMPLES,
+                        DEFAULT_MAX_SAMPLES,
+                    ),
+                    SetupColumn::new(
+                        "headers",
+                        DEFAULT_RETRAIN_POLICY,
+                        DEFAULT_MIN_SAMPLES,
+                        DEFAULT_MAX_SAMPLES,
+                    ),
+                ],
+            )
+            .with_view_name(ViewName::new("__compress_decoded_requests_raw")),
+        ],
         compression_level: DEFAULT_LEVEL,
     };
 
@@ -413,7 +419,7 @@ fn setup_rejects_view_equal_to_table_name() {
                     DEFAULT_MAX_SAMPLES,
                 )],
             )
-            .with_view(ViewName::new("requests_raw")),
+            .with_view_name(ViewName::new("requests_raw")),
         ],
         compression_level: DEFAULT_LEVEL,
     };
@@ -464,7 +470,7 @@ fn setup_rejects_table_occupying_view_name() {
                     DEFAULT_MAX_SAMPLES,
                 )],
             )
-            .with_view(ViewName::new("requests_raw")),
+            .with_view_name(ViewName::new("requests_raw")),
         ],
         compression_level: DEFAULT_LEVEL,
     };
@@ -506,7 +512,7 @@ fn setup_creates_custom_view_name() {
                     DEFAULT_MAX_SAMPLES,
                 )],
             )
-            .with_view(ViewName::new(custom_view)),
+            .with_view_name(ViewName::new(custom_view)),
         ],
         compression_level: DEFAULT_LEVEL,
     };
@@ -564,7 +570,7 @@ fn setup_rejects_duplicate_custom_view_names() {
                     DEFAULT_MAX_SAMPLES,
                 )],
             )
-            .with_view(ViewName::new("decoded")),
+            .with_view_name(ViewName::new("decoded")),
             SetupTable::new(
                 SchemaName::new("raw"),
                 TableName::new("responses_raw"),
@@ -575,7 +581,7 @@ fn setup_rejects_duplicate_custom_view_names() {
                     DEFAULT_MAX_SAMPLES,
                 )],
             )
-            .with_view(ViewName::new("Decoded")),
+            .with_view_name(ViewName::new("Decoded")),
         ],
         compression_level: DEFAULT_LEVEL,
     };
@@ -595,5 +601,48 @@ fn setup_rejects_duplicate_custom_view_names() {
     .unwrap()
     .as_i64()
     .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[test]
+fn setup_does_not_create_view_without_view_name() {
+    let db = common::TestDb::open();
+    let state = db.state();
+
+    state
+        .as_ref()
+        .batch_execute(
+            r#"
+            ATTACH DATABASE ':memory:' AS raw;
+            CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
+            "#,
+        )
+        .unwrap();
+
+    let config = SetupConfig {
+        tables: vec![SetupTable::new(
+            SchemaName::new("raw"),
+            TableName::new("requests_raw"),
+            vec![SetupColumn::new(
+                "data",
+                DEFAULT_RETRAIN_POLICY,
+                DEFAULT_MIN_SAMPLES,
+                DEFAULT_MAX_SAMPLES,
+            )],
+        )],
+        compression_level: DEFAULT_LEVEL,
+    };
+
+    setup(&db, &config).unwrap();
+
+    let rows = state
+        .as_ref()
+        .query(
+            "SELECT COUNT(*) FROM raw.sqlite_master WHERE type = 'view'",
+            &[],
+        )
+        .unwrap();
+
+    let count = first_value(&rows).unwrap().as_i64().unwrap();
     assert_eq!(count, 0);
 }

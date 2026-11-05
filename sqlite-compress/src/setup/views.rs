@@ -183,7 +183,7 @@ pub(super) fn init_view(state: &ExtensionState, config: &SetupConfig) -> Result<
             ensure_column_exist(state, &table.name, &table.schema, &column.name)?;
         }
 
-        if !table.columns.is_empty() {
+        if !table.columns.is_empty() && table.view_name().is_some() {
             ensure_table_view_exists(state, table)?;
         }
     }

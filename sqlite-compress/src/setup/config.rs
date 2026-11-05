@@ -265,7 +265,7 @@ pub struct SetupTable {
     pub(crate) name: TableName,
     pub(crate) schema: SchemaName,
     pub(crate) columns: Vec<SetupColumn>,
-    view: Option<ViewName>,
+    view_name: Option<ViewName>,
 }
 
 impl SetupTable {
@@ -274,7 +274,7 @@ impl SetupTable {
             schema,
             name,
             columns,
-            view: None,
+            view_name: None,
         }
     }
 
@@ -302,7 +302,7 @@ impl SetupTable {
     }
 
     pub(crate) fn decoded_view_name(&self) -> String {
-        match &self.view {
+        match &self.view_name {
             Some(view) => view.as_str().to_string(),
             None => self.name.decoded_view_name(),
         }
@@ -312,9 +312,13 @@ impl SetupTable {
         quote_qualified(self.schema.as_str(), &self.decoded_view_name())
     }
 
-    pub fn with_view(mut self, view: ViewName) -> Self {
-        self.view = Some(view);
+    pub fn with_view_name(mut self, view: ViewName) -> Self {
+        self.view_name = Some(view);
         self
+    }
+
+    pub fn view_name(&self) -> Option<&ViewName> {
+        self.view_name.as_ref()
     }
 
     pub fn insert_trigger_name(&self) -> String {
