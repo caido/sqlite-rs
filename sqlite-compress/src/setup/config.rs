@@ -303,7 +303,7 @@ impl SetupTable {
 
     pub(crate) fn decoded_view_name(&self) -> String {
         match &self.view_name {
-            Some(view) => view.as_str().to_string(),
+            Some(view) => format!("{}_{ }", VIEW_SUFFIX, view.as_str()),
             None => self.name.decoded_view_name(),
         }
     }

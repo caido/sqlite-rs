@@ -91,7 +91,7 @@ fn setup_creates_view() {
                     DEFAULT_MAX_SAMPLES,
                 )],
             )
-            .with_view_name(ViewName::new("__compress_decoded_requests_raw")),
+            .with_view_name(ViewName::new("requests_raw")),
         ],
         compression_level: DEFAULT_LEVEL,
     };
@@ -151,7 +151,7 @@ fn setup_creates_one_view_per_table() {
                     ),
                 ],
             )
-            .with_view_name(ViewName::new("__compress_decoded_requests_raw")),
+            .with_view_name(ViewName::new("requests_raw")),
         ],
         compression_level: DEFAULT_LEVEL,
     };
@@ -402,7 +402,10 @@ fn setup_rejects_view_equal_to_table_name() {
         .batch_execute(
             r#"
         ATTACH DATABASE ':memory:' AS raw;
-        CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
+        CREATE TABLE raw.__compress_decoded_requests_raw (
+                    id INTEGER PRIMARY KEY,
+                    data BLOB
+                );
         "#,
         )
         .unwrap();
@@ -411,7 +414,7 @@ fn setup_rejects_view_equal_to_table_name() {
         tables: vec![
             SetupTable::new(
                 SchemaName::new("raw"),
-                TableName::new("requests_raw"),
+                TableName::new("__compress_decoded_requests_raw"),
                 vec![SetupColumn::new(
                     "data",
                     DEFAULT_RETRAIN_POLICY,
@@ -428,8 +431,7 @@ fn setup_rejects_view_equal_to_table_name() {
     assert!(matches!(
         err,
         SetupError::NameConflict { name, existing_type }
-            if name == "requests_raw" && existing_type == "table"
-    ));
+        if name == "__compress_decoded_requests_raw" && existing_type == "table"    ));
 
     let rows = state
         .as_ref()
@@ -453,7 +455,7 @@ fn setup_rejects_table_occupying_view_name() {
             r#"
         ATTACH DATABASE ':memory:' AS raw;
         CREATE TABLE raw.requests_data (id INTEGER PRIMARY KEY, data BLOB);
-        CREATE TABLE raw.requests_raw (id INTEGER PRIMARY KEY, data BLOB);
+        CREATE TABLE raw.__compress_decoded_requests_raw (id INTEGER PRIMARY KEY, data BLOB);
         "#,
         )
         .unwrap();
@@ -479,8 +481,7 @@ fn setup_rejects_table_occupying_view_name() {
     assert!(matches!(
         err,
         SetupError::NameConflict { name, existing_type }
-            if name == "requests_raw" && existing_type == "table"
-    ));
+        if name == "__compress_decoded_requests_raw" && existing_type == "table"    ));
 }
 
 #[test]
@@ -528,7 +529,12 @@ fn setup_creates_custom_view_name() {
         )
         .unwrap();
 
-    assert_eq!(rows, vec![vec![SqlValue::Text(custom_view.into())]]);
+    assert_eq!(
+        rows,
+        vec![vec![SqlValue::Text(
+            "__compress_decoded_requests_decoded".into()
+        )]]
+    );
 
     let default_name = "__compress_decoded_requests_raw";
     let rows = state
