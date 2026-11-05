@@ -152,12 +152,21 @@ pub(crate) fn decode_sample(
     };
 
     let codec = CodecKind::try_from(header.codec)?;
+    let len = header.uncompressed_len.get() as usize;
 
     match codec {
-        CodecKind::Plain => Ok(payload.to_vec()),
+        CodecKind::Plain => {
+            if payload.len() != len {
+                return Err(CodecError::PlainPayloadLengthMismatch {
+                    expected: len,
+                    actual: payload.len(),
+                });
+            }
+
+            Ok(payload.to_vec())
+        }
         CodecKind::Zstd => {
             let dict_id = DictId::from(header.dict_id.get());
-            let len = header.uncompressed_len.get() as usize;
 
             if dict_id.get() == 0 {
                 return decompress_raw(payload, len);

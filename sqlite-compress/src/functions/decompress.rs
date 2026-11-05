@@ -62,7 +62,19 @@ pub fn sqlite_decompress(context: Context, values: &[Value]) -> Result<(), Sqlit
         CodecKind::try_from(header.codec).map_err(|e| SqliteError::Message(e.to_string()))?;
 
     let decompressed = match codec {
-        CodecKind::Plain => payload.to_vec(),
+        CodecKind::Plain => {
+            if payload.len() != len {
+                return Err(SqliteError::Message(
+                    CodecError::PlainPayloadLengthMismatch {
+                        expected: len,
+                        actual: payload.len(),
+                    }
+                    .to_string(),
+                ));
+            }
+
+            payload.to_vec()
+        }
         CodecKind::Zstd => {
             if dict_id.get() != 0 {
                 let state = ExtensionState::from_context(&context)?;

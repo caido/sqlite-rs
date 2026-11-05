@@ -5,7 +5,7 @@ use sqlite_ffi::{SqliteBlob, SqliteError};
 use zstd::{stream::read::Decoder, zstd_safe};
 
 use crate::{
-    DictError, DictId,
+    CodecError, DictError, DictId,
     cache::get_decoder_in_cache,
     functions::{
         ParsedBlob,
@@ -42,8 +42,18 @@ pub(crate) fn search_blob(
             let codec = CodecKind::try_from(header.codec).map_err(to_sqlite)?;
 
             if codec == CodecKind::Plain {
+                let expected = header.uncompressed_len.get() as usize;
+                let actual = total.saturating_sub(header_len);
+
+                if actual != expected {
+                    return Err(to_sqlite(CodecError::PlainPayloadLengthMismatch {
+                        expected,
+                        actual,
+                    }));
+                }
+
                 return matcher
-                    .find_in(blob.reader(header_len), offset)
+                    .find_in(blob.reader(header_len.saturating_add(offset)), 0)
                     .map_err(to_sqlite);
             }
 

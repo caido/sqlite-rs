@@ -18,9 +18,9 @@ const TEST_HEADER_LEN: u8 = 12;
 pub fn header_dict_id(blob: &[u8]) -> u32 {
     assert!(blob.len() >= TEST_HEADER_LEN as usize, "truncated header");
     assert_eq!(blob[0], TEST_MAGIC, "unexpected magic byte");
-    assert_eq!(blob[1], TEST_CODEC_ZSTD, "unexpected codec");
-    assert_eq!(blob[2], TEST_HEADER_VERSION, "unexpected header version");
-    assert_eq!(blob[3], TEST_HEADER_LEN, "unexpected header length");
+    assert_eq!(blob[1], TEST_HEADER_VERSION, "unexpected header version");
+    assert_eq!(blob[2], TEST_HEADER_LEN, "unexpected header length");
+    assert_eq!(blob[3], TEST_CODEC_ZSTD, "unexpected codec");
 
     u32::from_le_bytes(blob[4..8].try_into().expect("dict id in header"))
 }

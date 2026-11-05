@@ -30,12 +30,12 @@ impl TryFrom<u8> for CodecKind {
 pub struct Header {
     /// Identifies this file format.
     pub magic: u8,
-    /// Compression algorithm used for the payload.
-    pub codec: u8,
     /// Version of the prefix format understood by this decoder.
     pub version: u8,
     /// Number of bytes occupied by the full prefix, including future fields.
     pub header_len: u8,
+    /// Compression algorithm used for the payload.
+    pub codec: u8,
     /// Dictionary used for compression; zero denotes a raw Zstandard payload.
     pub dict_id: U32,
     /// Original byte length used to bound decompression output.
@@ -199,7 +199,7 @@ mod tests {
     #[test]
     fn treats_unknown_codec_as_plain() {
         let mut blob = framed_blob(CodecKind::Zstd, b"payload");
-        blob[1] = 0;
+        blob[3] = 0;
 
         assert!(matches!(
             Header::parse_blob(&blob).unwrap(),
