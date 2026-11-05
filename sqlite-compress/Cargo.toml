@@ -7,7 +7,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-zstd = { version = "0.13", features = ["zdict_builder"] }
+zstd = { version = "0.14", features = ["zdict_builder"] }
 parking_lot = "0.12"
 zerocopy = { version = "0.8", features = ["derive"] }
 thiserror = { workspace = true }
