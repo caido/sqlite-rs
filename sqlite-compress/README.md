@@ -66,7 +66,7 @@ let config = SetupConfig {
     compression_level: DEFAULT_LEVEL,
 };
 
-// `sqlite3_compress_init` has already run on `app.db`.
+// `sqlite3_compress_init` has already run on `app.db`
 setup(&app, &config)?;
 train_all(&app, &config, 112_640)?;
 ```
