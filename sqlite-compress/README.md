@@ -19,7 +19,7 @@ With the default `bundled` feature, call `sqlite3_compress_init` from the host a
 
 1. Validates each column policy (`retrain_policy`, `min_samples`, `max_samples`)
 2. Ensures each configured table and column exists
-3. Creates `__compress_decoded_{table}` views (idempotent; compressed columns go through `decompress`)
+3. Creates a decoded view when a table has a configured view name (idempotent; compressed columns go through `decompress`)
 4. Creates `__compress_dicts` in each schema (`id`, `dict`, `trained_at`, `table_name`, `column_name`, `row_count`)
 5. Warms encoder/decoder caches from the latest dictionary per column, if one is already stored
 
@@ -39,7 +39,7 @@ The host implements `SetupConnection` for the connection it already owns. See th
 ```rust
 use sqlite_compress::{
     setup, train_all, SchemaName, SetupColumn, SetupConfig, SetupConnection, SetupTable,
-    TableName, DEFAULT_LEVEL, DEFAULT_RETRAIN_POLICY,
+    TableName, ViewName,DEFAULT_LEVEL, DEFAULT_RETRAIN_POLICY,
 };
 
 struct AppConnection {
@@ -62,7 +62,7 @@ let config = SetupConfig {
             1_000,
             10_000,
         )],
-    )],
+    ).with_view_name(ViewName::new("__compress_decoded_requests")),],
     compression_level: DEFAULT_LEVEL,
 };
 
