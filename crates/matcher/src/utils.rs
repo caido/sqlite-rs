@@ -14,7 +14,7 @@ pub enum Segment {
 ///
 /// Runs of `%` collapse into one `Skip`, and leading or trailing `Skip`s are
 /// dropped since matching is unanchored on both ends.
-pub(crate) fn compile_segments(pattern: &[u8]) -> Vec<Segment> {
+pub(crate) fn compile_segments(pattern: &[u8], case_sensitive: bool) -> Vec<Segment> {
     let mut segments = Vec::new();
     let mut cur = Vec::new();
     let mut i = 0;
@@ -25,14 +25,14 @@ pub(crate) fn compile_segments(pattern: &[u8]) -> Vec<Segment> {
                 i += 2;
             }
             b'%' => {
-                push_literal(&mut segments, &mut cur);
+                push_literal(&mut segments, &mut cur, case_sensitive);
                 if !segments.is_empty() && !matches!(segments.last(), Some(Segment::Skip)) {
                     segments.push(Segment::Skip);
                 }
                 i += 1;
             }
             b'_' => {
-                push_literal(&mut segments, &mut cur);
+                push_literal(&mut segments, &mut cur, case_sensitive);
                 segments.push(Segment::Any);
                 i += 1;
             }
@@ -42,18 +42,22 @@ pub(crate) fn compile_segments(pattern: &[u8]) -> Vec<Segment> {
             }
         }
     }
-    push_literal(&mut segments, &mut cur);
+    push_literal(&mut segments, &mut cur, case_sensitive);
     if matches!(segments.last(), Some(Segment::Skip)) {
         segments.pop();
     }
     segments
 }
 
-fn push_literal(segments: &mut Vec<Segment>, cur: &mut Vec<u8>) {
+fn push_literal(segments: &mut Vec<Segment>, cur: &mut Vec<u8>, case_sensitive: bool) {
     if cur.is_empty() {
         return;
     }
-    cur.make_ascii_lowercase();
+
+    if !case_sensitive {
+        cur.make_ascii_lowercase();
+    }
+
     segments.push(Segment::Literal(Box::new(Finder::new(cur).into_owned())));
     cur.clear();
 }
@@ -63,7 +67,7 @@ mod tests {
     use super::*;
 
     fn segs(p: &str) -> Vec<String> {
-        compile_segments(p.as_bytes())
+        compile_segments(p.as_bytes(), false)
             .iter()
             .map(|s| match s {
                 Segment::Literal(f) => String::from_utf8_lossy(f.needle()).into_owned(),

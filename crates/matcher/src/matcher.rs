@@ -12,16 +12,25 @@ const STREAM_CHUNK: usize = 16 * 1024;
 /// Compiled `LIKE` pattern, cached across rows through SQLite auxdata.
 pub enum Matcher {
     /// No `_`: lowercase literals that must appear in order.
-    Ordered(Vec<Finder<'static>>),
+    Ordered {
+        finders: Vec<Finder<'static>>,
+        case_sensitive: bool,
+    },
     /// At least one `_`: segments matched over the buffered stream.
-    WithAny(Vec<Segment>),
+    WithAny {
+        segments: Vec<Segment>,
+        case_sensitive: bool,
+    },
 }
 
 impl Matcher {
-    pub fn compile(pattern: &[u8]) -> Self {
-        let segments = compile_segments(pattern);
+    pub fn compile(pattern: &[u8], case_sensitive: bool) -> Self {
+        let segments = compile_segments(pattern, case_sensitive);
         if segments.iter().any(|s| matches!(s, Segment::Any)) {
-            return Self::WithAny(segments);
+            return Self::WithAny {
+                segments,
+                case_sensitive,
+            };
         }
 
         let finders = segments
@@ -31,13 +40,22 @@ impl Matcher {
                 _ => None,
             })
             .collect();
-        Self::Ordered(finders)
+        Self::Ordered {
+            finders,
+            case_sensitive,
+        }
     }
 
     pub fn find_in<R: Read>(&self, reader: R, skip: usize) -> Result<bool, MatcherError> {
         match self {
-            Self::Ordered(finders) => fast_path_ordered_segments(reader, finders, skip),
-            Self::WithAny(segments) => slow_path_with_any(reader, segments, skip),
+            Self::Ordered {
+                finders,
+                case_sensitive,
+            } => fast_path_ordered_segments(reader, finders, skip, *case_sensitive),
+            Self::WithAny {
+                segments,
+                case_sensitive,
+            } => slow_path_with_any(reader, segments, skip, *case_sensitive),
         }
     }
 }
@@ -51,6 +69,7 @@ fn fast_path_ordered_segments<R: Read>(
     mut reader: R,
     finders: &[Finder<'static>],
     mut skip: usize,
+    case_sensitive: bool,
 ) -> Result<bool, MatcherError> {
     let Some(longest) = finders.iter().map(|f| f.needle().len()).max() else {
         return Ok(true);
@@ -77,7 +96,9 @@ fn fast_path_ordered_segments<R: Read>(
             skip = 0;
         }
 
-        buf[kept..end].make_ascii_lowercase();
+        if !case_sensitive {
+            buf[kept..end].make_ascii_lowercase();
+        }
 
         let mut pos = 0;
         while let Some(i) = finders[current].find(&buf[pos..end]) {
@@ -104,6 +125,7 @@ fn slow_path_with_any<R: Read>(
     mut reader: R,
     segments: &[Segment],
     mut skip: usize,
+    case_sensitive: bool,
 ) -> Result<bool, MatcherError> {
     let mut buf = Vec::new();
     let mut eof = false;
@@ -128,14 +150,19 @@ fn slow_path_with_any<R: Read>(
             Group::Pending(from) => {
                 buf.drain(..from);
                 pos = 0;
-                eof = !read_more(&mut reader, &mut buf, &mut skip)?;
+                eof = !read_more(&mut reader, &mut buf, &mut skip, case_sensitive)?;
             }
         }
     }
 }
 
 /// Appends the next bytes past `skip`, lowercased; returns `false` at EOF.
-fn read_more<R: Read>(reader: &mut R, buf: &mut Vec<u8>, skip: &mut usize) -> io::Result<bool> {
+fn read_more<R: Read>(
+    reader: &mut R,
+    buf: &mut Vec<u8>,
+    skip: &mut usize,
+    case_sensitive: bool,
+) -> io::Result<bool> {
     loop {
         let len = buf.len();
         buf.resize(len + STREAM_CHUNK, 0);
@@ -149,7 +176,9 @@ fn read_more<R: Read>(reader: &mut R, buf: &mut Vec<u8>, skip: &mut usize) -> io
             return Ok(false);
         }
         if n > dropped {
-            buf[len..].make_ascii_lowercase();
+            if !case_sensitive {
+                buf[len..].make_ascii_lowercase();
+            }
             return Ok(true);
         }
     }
@@ -249,7 +278,13 @@ mod tests {
     use super::*;
 
     fn matches(pattern: &str, haystack: &[u8]) -> bool {
-        Matcher::compile(pattern.as_bytes())
+        Matcher::compile(pattern.as_bytes(), false)
+            .find_in(haystack, 0)
+            .unwrap()
+    }
+
+    fn matches_case_sensitive(pattern: &str, haystack: &[u8]) -> bool {
+        Matcher::compile(pattern.as_bytes(), true)
             .find_in(haystack, 0)
             .unwrap()
     }
@@ -266,6 +301,15 @@ mod tests {
             self.0 = rest;
             Ok(1)
         }
+    }
+
+    #[test]
+    fn case_sensitive_mode_matches_literals_exactly() {
+        assert!(matches_case_sensitive("hello%world", b"hello--world"));
+        assert!(!matches_case_sensitive("hello%world", b"Hello--world"));
+
+        assert!(matches_case_sensitive("h_llo", b"hello"));
+        assert!(!matches_case_sensitive("h_llo", b"Hello"));
     }
 
     #[test]
@@ -308,11 +352,11 @@ mod tests {
     #[test]
     fn matches_span_chunks() {
         for pattern in ["needle%tail", "ne_dle%tail"] {
-            let m = Matcher::compile(pattern.as_bytes());
+            let m = Matcher::compile(pattern.as_bytes(), false);
             assert!(m.find_in(Trickle(b"..NEEDLE..TAIL.."), 0).unwrap());
             assert!(!m.find_in(Trickle(b"..TAIL..NEEDLE.."), 0).unwrap());
         }
-        let m = Matcher::compile(b"a_c");
+        let m = Matcher::compile(b"a_c", false);
         assert!(m.find_in(Trickle("xaéc".as_bytes()), 0).unwrap());
         assert!(!m.find_in(Trickle("xaé".as_bytes()), 0).unwrap());
     }
@@ -320,7 +364,7 @@ mod tests {
     #[test]
     fn offset_skips_prefix() {
         for pattern in ["abc", "a_c"] {
-            let m = Matcher::compile(pattern.as_bytes());
+            let m = Matcher::compile(pattern.as_bytes(), false);
             assert!(m.find_in(&b"abc---abc"[..], 3).unwrap());
             assert!(!m.find_in(&b"abc------"[..], 1).unwrap());
         }
