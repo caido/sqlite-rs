@@ -6,7 +6,7 @@ use std::sync::{
 use sqlite_ffi::{Connection, SqlValue, first_value, sample_bytes};
 
 use crate::{
-    Header, SetupColumn, SetupTable,
+    CodecKind, Header, SetupColumn, SetupTable,
     cache::{get_decoder_in_cache, insert_into_caches},
     dict::{
         DICT_TABLE_NAME,
@@ -151,15 +151,31 @@ pub(crate) fn decode_sample(
         return Ok(blob);
     };
 
-    let dict_id = DictId::from(header.dict_id.get());
+    let codec = CodecKind::try_from(header.codec)?;
     let len = header.uncompressed_len.get() as usize;
-    if dict_id.get() == 0 {
-        return decompress_raw(payload, len);
+
+    match codec {
+        CodecKind::Plain => {
+            if payload.len() != len {
+                return Err(CodecError::PlainPayloadLengthMismatch {
+                    expected: len,
+                    actual: payload.len(),
+                });
+            }
+
+            Ok(payload.to_vec())
+        }
+        CodecKind::Zstd => {
+            let dict_id = DictId::from(header.dict_id.get());
+
+            if dict_id.get() == 0 {
+                return decompress_raw(payload, len);
+            }
+
+            let decoder = get_decoder_in_cache(state, schema, dict_id)?;
+            decompress_with_decoder(payload, &decoder, len)
+        }
     }
-
-    let decoder = get_decoder_in_cache(state, schema, dict_id)?;
-
-    decompress_with_decoder(payload, &decoder, len)
 }
 
 /// Rejects configurations that cannot produce a useful dictionary.

@@ -5,9 +5,12 @@ use sqlite_ffi::{SqliteBlob, SqliteError};
 use zstd::{stream::read::Decoder, zstd_safe};
 
 use crate::{
-    DictError, DictId,
+    CodecError, DictError, DictId,
     cache::get_decoder_in_cache,
-    functions::{ParsedBlob, header::Header},
+    functions::{
+        ParsedBlob,
+        header::{CodecKind, Header},
+    },
     state::ExtensionState,
 };
 
@@ -35,6 +38,24 @@ pub(crate) fn search_blob(
         Ok(ParsedBlob::Plain) => matcher.find_in(blob.reader(offset), 0).map_err(to_sqlite),
         Ok(ParsedBlob::Framed(header, _)) => {
             let header_len = header.header_len as usize;
+
+            let codec = CodecKind::try_from(header.codec).map_err(to_sqlite)?;
+
+            if codec == CodecKind::Plain {
+                let expected = header.uncompressed_len.get() as usize;
+                let actual = total.saturating_sub(header_len);
+
+                if actual != expected {
+                    return Err(to_sqlite(CodecError::PlainPayloadLengthMismatch {
+                        expected,
+                        actual,
+                    }));
+                }
+
+                return matcher
+                    .find_in(blob.reader(header_len.saturating_add(offset)), 0)
+                    .map_err(to_sqlite);
+            }
 
             let dict_id = DictId::from(header.dict_id.get());
             let prepared = if dict_id.get() != 0 {

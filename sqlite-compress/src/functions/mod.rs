@@ -16,8 +16,8 @@ pub use compressed_dict_id::sqlite_compressed_dict_id;
 pub use decompress::sqlite_decompress;
 pub(crate) use decompress::{decompress_raw, decompress_with_decoder};
 pub use errors::CodecError;
-pub use header::Header;
 pub(crate) use header::ParsedBlob;
+pub use header::{CodecKind, Header};
 pub use latest_dict_id::sqlite_latest_dict_id;
 #[cfg(feature = "like")]
 pub use like::sqlite_decompress_like;

@@ -30,4 +30,6 @@ pub enum CodecError {
     UnknownVersion(u8),
     #[error("connection state missing")]
     MissingConnectionState,
+    #[error("plain payload length mismatch: expected {expected}, got {actual}")]
+    PlainPayloadLengthMismatch { expected: usize, actual: usize },
 }

@@ -10,6 +10,21 @@ use sqlite_ffi::{SqlValue, first_value};
 
 use crate::common::TestDb;
 
+const TEST_MAGIC: u8 = 0xD4;
+const TEST_CODEC_ZSTD: u8 = 2;
+const TEST_HEADER_VERSION: u8 = 1;
+const TEST_HEADER_LEN: u8 = 12;
+
+pub fn header_dict_id(blob: &[u8]) -> u32 {
+    assert!(blob.len() >= TEST_HEADER_LEN as usize, "truncated header");
+    assert_eq!(blob[0], TEST_MAGIC, "unexpected magic byte");
+    assert_eq!(blob[1], TEST_HEADER_VERSION, "unexpected header version");
+    assert_eq!(blob[2], TEST_HEADER_LEN, "unexpected header length");
+    assert_eq!(blob[3], TEST_CODEC_ZSTD, "unexpected codec");
+
+    u32::from_le_bytes(blob[4..8].try_into().expect("dict id in header"))
+}
+
 pub fn compress_blob(state: &ExtensionState, data: &[u8]) -> Vec<u8> {
     let rows = state
         .as_ref()
@@ -32,8 +47,19 @@ pub fn decompress_blob(state: &ExtensionState, blob: &[u8]) -> Vec<u8> {
     first_value(&rows).unwrap().as_blob().unwrap().to_vec()
 }
 
-pub fn header_dict_id(blob: &[u8]) -> u32 {
-    u32::from_le_bytes(blob[4..8].try_into().expect("framed header"))
+#[test]
+fn decompress_returns_blob_unchanged_when_magic_is_missing() {
+    let db = common::TestDb::open();
+    let state = db.state();
+
+    let mut blob = compress_blob(
+        &state,
+        b"GET /api/users/42 HTTP/1.1\r\nHost: example.com\r\n\r\n",
+    );
+
+    blob[0] = 0;
+
+    assert_eq!(decompress_blob(&state, &blob), blob);
 }
 
 #[test]
