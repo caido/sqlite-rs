@@ -13,16 +13,32 @@ struct CachedMatcher {
     matcher: Matcher,
 }
 
-/// `decompress_like(schema, table, column, rowid, pattern, offset[, case_sensitive]) -> 0|1`
+/// `decompress_like(schema, table, column, rowid, pattern, offset) -> 0|1`
 ///
-/// `pattern` uses `LIKE` wildcards (`%`, `_`) and matches anywhere in the
-/// value. `case_sensitive` is optional and defaults to 0.
-pub fn sqlite_decompress_like(mut context: Context, values: &[Value]) -> Result<(), SqliteError> {
-    if values.len() < 6 && values.len() != 7 {
+/// Uses `LIKE` wildcards (`%`, `_`) and matches anywhere in the value.
+/// Matching is case-sensitive.
+pub fn sqlite_decompress_like(context: Context, values: &[Value]) -> Result<(), SqliteError> {
+    sqlite_decompress_like_with_case(context, values, true)
+}
+
+/// `decompress_ilike(schema, table, column, rowid, pattern, offset) -> 0|1`
+///
+/// Uses `LIKE` wildcards (`%`, `_`) and matches anywhere in the value.
+/// Matching is case-insensitive.
+pub fn sqlite_decompress_ilike(context: Context, values: &[Value]) -> Result<(), SqliteError> {
+    sqlite_decompress_like_with_case(context, values, false)
+}
+
+fn sqlite_decompress_like_with_case(
+    mut context: Context,
+    values: &[Value],
+    case_sensitive: bool,
+) -> Result<(), SqliteError> {
+    if values.len() != 6 {
         return Err(SqliteError::Message(
-                    "decompress_like expects 6 or 7 arguments: schema, table, column, rowid, pattern, offset[, case_sensitive]"
-                        .into(),
-                ));
+            "decompress_like and decompress_ilike expect 6 arguments: schema, table, column, rowid, pattern, offset"
+                .into(),
+        ));
     }
 
     let schema = values[0].to_text()?;
@@ -31,7 +47,6 @@ pub fn sqlite_decompress_like(mut context: Context, values: &[Value]) -> Result<
     let rowid = values[3].to_i64();
     let pattern = values[PATTERN_ARG as usize].to_blob();
     let offset = values[5].to_i64().max(0) as usize;
-    let case_sensitive = values.get(6).is_some_and(|value| value.to_i64() != 0);
 
     let state = ExtensionState::from_context(&context)?;
     let blob = state

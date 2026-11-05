@@ -80,7 +80,7 @@ INSERT INTO requests (body)
 VALUES (compress(:body, 'main', 'requests', 'body'));
 ```
 
-+For ordinary reads, query the decoded view created by setup. `with_view_name` supplies the base name; setup prefixes it with `__compress_decoded_`. For example, `ViewName::new("requests_decoded")` creates `__compress_decoded_requests_decoded`. If `with_view_name` is omitted, setup creates no view
+For ordinary reads, query the decoded view created by setup. `with_view_name` supplies the base name; setup prefixes it with `__compress_decoded_`. For example, `ViewName::new("requests_decoded")` creates `__compress_decoded_requests_decoded`. If `with_view_name` is omitted, setup creates no view
 
 ```sql
 SELECT id, body

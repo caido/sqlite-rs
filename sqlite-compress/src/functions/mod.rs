@@ -20,5 +20,5 @@ pub(crate) use header::ParsedBlob;
 pub use header::{CodecKind, Header};
 pub use latest_dict_id::sqlite_latest_dict_id;
 #[cfg(feature = "like")]
-pub use like::sqlite_decompress_like;
+pub use like::{sqlite_decompress_ilike, sqlite_decompress_like};
 pub use types::Level;
